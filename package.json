@@ -1,0 +1,15 @@
+{
+  "name": "cadastrobr-atualizacoes",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "node webscraper.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "pg": "^8.14.1"
+  }
+}
