@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const url = require('url');
-
+require('dotenv').config();
 /**
  * Connects to the database and retrieves companies with sites but no email/phone
  * @returns {Promise<Array>} Array of company records
@@ -33,7 +33,7 @@ async function easyNotificationsRequest(message, type, category, channel, conten
       return response.data;
   } catch (error) {
       console.log(error);
-      easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error)
+      easyNotificationsRequest("Erro na raspagem em"+process.env.SCRAP_UF, "error", "cadastrobr", "cadastrobr", error)
   }
 }
 
@@ -58,15 +58,16 @@ async function getCompaniesForScraping() {
       SELECT id, cnpj, site 
       FROM industrias 
       WHERE site IS NOT NULL 
-      AND (at IS NULL)
+      AND at IS NULL
+      AND uf = '${process.env.SCRAP_UF}'
     `);
     
     console.log(`[${new Date().toISOString()}] Retrieved ${result.rows.length} companies for scraping`);
-    easyNotificationsRequest("Iniciando raspagem de industrias", "info", "cadastrobr", "cadastrobr", +result.rows.length+" industrias")
+    easyNotificationsRequest("Iniciando raspagem de industrias do "+process.env.SCRAP_UF, "info", "cadastrobr", "cadastrobr", +result.rows.length+" industrias")
     return result.rows;
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Database error:`, error.message);
-    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
+    easyNotificationsRequest("Erro na raspagem em"+process.env.SCRAP_UF, "error", "cadastrobr", "cadastrobr", error.message)
     throw error;
   } finally {
     await pool.end();
@@ -294,7 +295,7 @@ async function updateCompanyData(id, data) {
     return true;
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error updating company ID ${id}:`, error.message);
-    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
+    easyNotificationsRequest("Erro na raspagem  em"+process.env.SCRAP_UF, "error", "cadastrobr", "cadastrobr", error.message)
     return false;
   } finally {
     await pool.end();
@@ -342,7 +343,7 @@ async function main() {
         await new Promise(resolve => setTimeout(resolve, 3000));
       } catch (error) {
         console.error(`[${new Date().toISOString()}] Error processing company:`, error.message);
-        easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
+        easyNotificationsRequest("Erro na raspagem em"+process.env.SCRAP_UF, "error", "cadastrobr", "cadastrobr", error.message)
       }
     }
     
@@ -355,41 +356,41 @@ async function main() {
     const emails = await pool.query(`
       SELECT *
       FROM industrias 
-      WHERE email IS NOT NULL 
+      WHERE email IS NOT NULL AND uf = '${process.env.SCRAP_UF}'
     `);
 
-    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +emails.rows.length+" industrias com email")
+    easyNotificationsRequest("Raspagem Finalizada em"+process.env.SCRAP_UF, "info", "cadastrobr", "cadastrobr", +emails.rows.length+" industrias com email")
 
     await pool.query('SELECT 5');
 
     const tel = await pool.query(`
       SELECT *
       FROM industrias 
-      WHERE tel1 IS NOT NULL 
+      WHERE tel1 IS NOT NULL AND uf = '${process.env.SCRAP_UF}'
     `);
 
-    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +tel.rows.length+" industrias com telefone")
+    easyNotificationsRequest("Raspagem Finalizada em"+process.env.SCRAP_UF, "info", "cadastrobr", "cadastrobr", +tel.rows.length+" industrias com telefone")
 
     const tel_email = await pool.query(`
       SELECT *
       FROM industrias 
-      WHERE tel1 IS NOT NULL AND email IS NOT NULL
+      WHERE tel1 IS NOT NULL AND email IS NOT NULL AND uf = '${process.env.SCRAP_UF}'
     `);
 
-    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +tel_email.rows.length+" industrias com email e telefone")
+    easyNotificationsRequest("Raspagem Finalizada em"+process.env.SCRAP_UF, "info", "cadastrobr", "cadastrobr", +tel_email.rows.length+" industrias com email e telefone")
     
     const total = await pool.query(`
       SELECT *
       FROM industrias 
-      WHERE at IS NOT NULL
+      WHERE at IS NOT NULL AND uf = '${process.env.SCRAP_UF}'
     `);
 
-    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +total.rows.length+" total de instrias verificadas")
+    easyNotificationsRequest("Raspagem Finalizada em"+process.env.SCRAP_UF, "info", "cadastrobr", "cadastrobr", +total.rows.length+" total de instrias verificadas")
     
   } catch (error) {
     console.error(`[${new Date().toISOString()}] FATAL ERROR:`, error.message);
     console.error(`[${new Date().toISOString()}] Stack trace:`, error.stack);
-    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
+    easyNotificationsRequest("Erro na raspagem em"+process.env.SCRAP_UF, "error", "cadastrobr", "cadastrobr", error.message)
 
     process.exit(1);
   } finally {

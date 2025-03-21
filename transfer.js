@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-
+require('dotenv').config();
 /**
  * Connects to database and retrieves manufacturing companies in SC state
  * with corporate email addresses.
@@ -34,7 +34,7 @@ async function getManufacturingCompaniesInSC() {
         LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root
         LEFT JOIN rf_company_tax_regime ctr ON c.cnpj_root = ctr.cnpj_root  
       WHERE 
-        c.address_fu = 'SC' 
+        c.address_fu = '${process.env.TRANSFER_UF}' 
         AND c.situation_code = '02'
         AND CAST(LEFT(c.cnae_main, 2) AS INTEGER) BETWEEN 10 AND 33
         AND c.email NOT LIKE '%gmail%'
@@ -171,8 +171,8 @@ async function transferCompaniesToSecondDB() {
         // Insert into second database - no verification
         try {
           await client.query(
-            `INSERT INTO industrias (cnpj, site) 
-             VALUES ($1, $2)`,
+            `INSERT INTO industrias (cnpj, site, uf) 
+             VALUES ($1, $2, '${process.env.TRANSFER_UF}')`,
             [company.cnpj, site]
           );
           
