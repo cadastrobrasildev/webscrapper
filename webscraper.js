@@ -6,7 +6,38 @@ const url = require('url');
 /**
  * Connects to the database and retrieves companies with sites but no email/phone
  * @returns {Promise<Array>} Array of company records
+ * 
  */
+
+async function easyNotificationsRequest(message, type, category, channel, content) {
+  var requestData = [];
+
+  let config = {
+      method: "POST",
+      headers: {
+         "content-type": "application/json",
+      },
+      url: 'https://notifications-app-api-production.up.railway.app/send-message',
+      data: {
+          message: message,
+          type: type,
+          category: category,
+          route: "felipe",
+          channel: channel,
+          content: content
+      },
+  };
+
+  try {
+      const response = await axios.request(config);
+      return response.data;
+  } catch (error) {
+      console.log(error);
+      easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error)
+  }
+}
+
+
 async function getCompaniesForScraping() {
   console.log(`[${new Date().toISOString()}] Connecting to database to retrieve company sites...`);
   
@@ -28,13 +59,14 @@ async function getCompaniesForScraping() {
       FROM industrias 
       WHERE site IS NOT NULL 
       AND (at IS NULL)
-      LIMIT 1000
     `);
     
     console.log(`[${new Date().toISOString()}] Retrieved ${result.rows.length} companies for scraping`);
+    easyNotificationsRequest("Iniciando raspagem de industrias", "info", "cadastrobr", "cadastrobr", +result.rows.length+" industrias")
     return result.rows;
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Database error:`, error.message);
+    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
     throw error;
   } finally {
     await pool.end();
@@ -201,6 +233,7 @@ async function scrapeWebsite(siteUrl) {
     
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error scraping ${siteUrl}:`, error.message);
+    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
     return result;
   }
 }
@@ -262,6 +295,7 @@ async function updateCompanyData(id, data) {
     return true;
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error updating company ID ${id}:`, error.message);
+    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
     return false;
   } finally {
     await pool.end();
@@ -300,14 +334,43 @@ async function main() {
         await new Promise(resolve => setTimeout(resolve, 3000));
       } catch (error) {
         console.error(`[${new Date().toISOString()}] Error processing company:`, error.message);
+        easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
       }
     }
     
     console.log(`[${new Date().toISOString()}] Scraping complete. Updated ${successCount} out of ${companies.length} companies.`);
+    await pool.query('SELECT 3');
+    console.log(`[${new Date().toISOString()}] Connected to database successfully`);
+    
+    const emails = await pool.query(`
+      SELECT *
+      FROM industrias 
+      WHERE email IS NOT NULL 
+    `);
+
+    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +emails.rows.length+" industrias com email")
+
+    const tel = await pool.query(`
+      SELECT *
+      FROM industrias 
+      WHERE tel1 IS NOT NULL 
+    `);
+
+    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +tel.rows.length+" industrias com telefone")
+
+    const tel_email = await pool.query(`
+      SELECT *
+      FROM industrias 
+      WHERE tel1 IS NOT NULL AND email IS NOT NULL
+    `);
+
+    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +tel_email.rows.length+" industrias com email e telefone")
     
   } catch (error) {
     console.error(`[${new Date().toISOString()}] FATAL ERROR:`, error.message);
     console.error(`[${new Date().toISOString()}] Stack trace:`, error.stack);
+    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
+
     process.exit(1);
   } finally {
     console.log(`[${new Date().toISOString()}] ===== WEB SCRAPER COMPLETED =====`);
