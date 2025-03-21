@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "start": "node webscraper.js"
+    "start": "node transfer.js"
   },
   "author": "",
   "license": "ISC",
