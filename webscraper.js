@@ -59,7 +59,6 @@ async function getCompaniesForScraping() {
       FROM industrias 
       WHERE site IS NOT NULL 
       AND (at IS NULL)
-      LIMIT 3
     `);
     
     console.log(`[${new Date().toISOString()}] Retrieved ${result.rows.length} companies for scraping`);
