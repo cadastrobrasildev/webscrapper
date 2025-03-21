@@ -59,6 +59,7 @@ async function getCompaniesForScraping() {
       FROM industrias 
       WHERE site IS NOT NULL 
       AND (at IS NULL)
+      LIMIT 3
     `);
     
     console.log(`[${new Date().toISOString()}] Retrieved ${result.rows.length} companies for scraping`);
@@ -306,6 +307,15 @@ async function updateCompanyData(id, data) {
  */
 async function main() {
   console.log(`[${new Date().toISOString()}] ===== STARTING WEB SCRAPER =====`);
+
+  const pool = new Pool({
+    host: 'shortline.proxy.rlwy.net',
+    port: 24642,
+    database: 'railway',
+    user: 'postgres',
+    password: 'DSBlkKCnEUKRlGBbnyhofNcwkhwvINsp',
+    connectionTimeoutMillis: 15000
+  });
   
   try {
     const companies = await getCompaniesForScraping();
@@ -338,8 +348,10 @@ async function main() {
     }
     
     console.log(`[${new Date().toISOString()}] Scraping complete. Updated ${successCount} out of ${companies.length} companies.`);
-    await pool.query('SELECT 3');
+
     console.log(`[${new Date().toISOString()}] Connected to database successfully`);
+
+    await pool.query('SELECT 4');
     
     const emails = await pool.query(`
       SELECT *
@@ -348,6 +360,8 @@ async function main() {
     `);
 
     easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +emails.rows.length+" industrias com email")
+
+    await pool.query('SELECT 5');
 
     const tel = await pool.query(`
       SELECT *
@@ -364,6 +378,14 @@ async function main() {
     `);
 
     easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +tel_email.rows.length+" industrias com email e telefone")
+    
+    const total = await pool.query(`
+      SELECT *
+      FROM industrias 
+      WHERE at IS NOT NULL
+    `);
+
+    easyNotificationsRequest("Raspagem Finalizada", "info", "cadastrobr", "cadastrobr", +total.rows.length+" total de instrias verificadas")
     
   } catch (error) {
     console.error(`[${new Date().toISOString()}] FATAL ERROR:`, error.message);
