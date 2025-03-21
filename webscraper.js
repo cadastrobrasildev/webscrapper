@@ -233,7 +233,6 @@ async function scrapeWebsite(siteUrl) {
     
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error scraping ${siteUrl}:`, error.message);
-    easyNotificationsRequest("Erro na raspagem", "error", "cadastrobr", "cadastrobr", error.message)
     return result;
   }
 }
