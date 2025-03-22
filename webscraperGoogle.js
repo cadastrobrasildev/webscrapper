@@ -65,7 +65,8 @@ const pool1 = new Pool({
       const result1 = await pool1.query(`
         SELECT id, cnpj, email, tel1 
         FROM industrias 
-        WHERE uf = '${process.env.SCRAP_UF}' and (email IS NULL OR tel1 IS NULL)
+        WHERE  ${process.env.SCRAP_UF ? ` uf = '${process.env.SCRAP_UF}' and` : ''}
+        email IS NULL OR tel1 IS NULL
         ORDER BY random()
         LIMIT 1
       `);
