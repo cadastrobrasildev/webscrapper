@@ -64,7 +64,7 @@ const pool2 = new Pool({
             // Busca uma indústria aleatória que precisa de dados
             const result1 = await pool1.query(`SELECT id, cnpj, email, tel1 
             FROM industrias 
-            WHERE ${process.env.SCRAP_UF ? `uf = '${process.env.SCRAP_UF}' and (email IS NULL OR tel1 IS NULL)` : 'email IS NULL OR tel1 IS NULL'}
+            WHERE at='1' AND ${process.env.SCRAP_UF ? `uf = '${process.env.SCRAP_UF}' and (email IS NULL OR tel1 IS NULL)` : 'email IS NULL OR tel1 IS NULL'}
             ORDER BY random()
             LIMIT 1
       `);
@@ -105,7 +105,7 @@ const pool2 = new Pool({
                 // Atualiza o registro como processado para evitar que seja selecionado novamente
                 await pool1.query(`
           UPDATE industrias
-          SET update_google = 1
+          SET update_google = 1, at = 2
           WHERE id = $1
         `, [bd1.id]);
 
