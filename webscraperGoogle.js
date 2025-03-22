@@ -63,7 +63,7 @@ const pool1 = new Pool({
     while (keepSearching) {
       // Busca uma indústria aleatória que precisa de dados
       const result1 = await pool1.query(`
-        SELECT id, cnpj 
+        SELECT id, cnpj, email, tel1 
         FROM industrias 
         WHERE email IS NULL OR tel1 IS NULL
         AND uf = '${process.env.SCRAP_UF}'
@@ -270,20 +270,20 @@ const pool1 = new Pool({
       const valuesToUpdate = [];
       let paramIndex = 1;
       
-      // Adiciona campos somente se tiverem valores
-      if (tel1_dd) {
+      // Adiciona campos somente se tiverem valores E o registro atual não tiver valor
+      if (tel1_dd && (!bd1.tel1 || bd1.tel1 === '')) {
         fieldsToUpdate.push(`tel1_dd = $${paramIndex}`);
         valuesToUpdate.push(tel1_dd);
         paramIndex++;
       }
       
-      if (tel1) {
+      if (tel1 && (!bd1.tel1 || bd1.tel1 === '')) {
         fieldsToUpdate.push(`tel1 = $${paramIndex}`);
         valuesToUpdate.push(tel1);
         paramIndex++;
       }
       
-      if (contato.email) {
+      if (contato.email && (!bd1.email || bd1.email === '')) {
         fieldsToUpdate.push(`email = $${paramIndex}`);
         valuesToUpdate.push(contato.email);
         paramIndex++;
