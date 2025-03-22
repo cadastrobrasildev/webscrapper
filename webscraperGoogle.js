@@ -101,9 +101,8 @@ const pool2 = new Pool({
 
                 const bd2 = result2.rows[0];
 
-                // Verifica se trade_name está disponível
-                if (!bd2.trade_name) {
-                    console.log(`[${new Date().toISOString()}] Skipping record ID: ${bd1.id} - No trade_name available`);
+                if (!bd2.trade_name && !bd2.name) {
+                    console.log(`[${new Date().toISOString()}] Skipping record ID: ${bd1.id} - No trade_name or name available`);
 
                     // Atualiza o registro como processado para evitar que seja selecionado novamente
                     await pool1.query(`
@@ -117,7 +116,7 @@ const pool2 = new Pool({
                 }
 
                 // Monta a consulta para o Google com base nas informações da empresa
-                const empresaQuery = `${bd2.name || bd2.trade_name || ''} ${bd2.address_city_name || ''} ${bd2.address_fu || ''}`;
+                const empresaQuery = `${bd2.trade_name || bd2.name} ${bd2.address_city_name || ''} ${bd2.address_fu || ''}`;
                 const query = `${empresaQuery} contato telefone email site`;
                 const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
