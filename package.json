@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "start": "node transfer.js"
+    "start": "node transfer.js",
+    "transfer": "node transfer.js",
+    "scrap_site": "node webScraper.js",
+    "scrap_google": "node webscraperGoogle.js"
   },
   "author": "",
   "license": "ISC",
@@ -12,6 +15,9 @@
     "axios": "^1.8.4",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.7",
-    "pg": "^8.14.1"
+    "pg": "^8.14.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "random-useragent": "^0.5.0"
   }
 }
