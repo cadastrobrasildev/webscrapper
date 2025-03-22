@@ -294,7 +294,7 @@ const pool2 = new Pool({
             }
 
             // Sempre adiciona update_google = 1
-            fieldsToUpdate.push(`update_google = 1`);
+            fieldsToUpdate.push(`update_google = 1, at = 2`);
 
             // Adiciona o ID como último parâmetro
             valuesToUpdate.push(bd1.id);
