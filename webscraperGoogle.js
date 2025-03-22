@@ -141,6 +141,7 @@ const pool2 = new Pool({
                     pageContent.includes('recaptcha');
 
                 if (isCaptchaPresent) {
+                    console.log(isCaptchaPresent)
                     console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${captchaCounter + 1}`);
                     captchaCounter++;
                     
