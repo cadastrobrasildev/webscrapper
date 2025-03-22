@@ -7,6 +7,7 @@ const randomUseragent = require('random-useragent');
 const cheerio = require('cheerio');
 const { Pool } = require('pg');
 const sleep = ms => new Promise(res => setTimeout(res, ms));
+require('dotenv').config();
 
 puppeteer.use(StealthPlugin());
 const pool1 = new Pool({
@@ -65,7 +66,7 @@ const pool1 = new Pool({
         SELECT id, cnpj 
         FROM industrias 
         WHERE email IS NULL OR tel1 IS NULL
-        AND uf = '${process.env.SCRAP_UF || 'SC'}'
+        AND uf = '${process.env.SCRAP_UF}'
         ORDER BY random()
         LIMIT 1
       `);
