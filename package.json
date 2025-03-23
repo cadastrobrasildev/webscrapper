@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node transfer.js",
     "transfer": "node transfer.js",
+    "transfer": "node transfer2.js",
     "scrap_site": "node webScraper.js",
     "scrap_google": "node webscraperGoogle.js",
     "scrap_google2": "node webscraperGoogle2.js"
