@@ -56,9 +56,9 @@ async function getCompaniesForScraping() {
     
     const result = await pool.query(`
       SELECT id, cnpj, site 
-      FROM industrias 
+      FROM transfer 
       WHERE site IS NOT NULL 
-      AND at IS NULL
+      AND at = '1'
       AND uf = '${process.env.SCRAP_UF}'
     `);
     
@@ -260,7 +260,7 @@ async function updateCompanyData(id, data) {
     let paramIndex = 1;
     
     // Always set at = 1 to indicate this record has been processed
-    updateFields.push(`at = 1`);
+    updateFields.push(`at = '5'`);
     
     if (data.email) {
       updateFields.push(`email = $${paramIndex}`);
@@ -285,7 +285,7 @@ async function updateCompanyData(id, data) {
     values.push(id);
     
     const query = `
-      UPDATE industrias
+      UPDATE transfer
       SET ${updateFields.join(', ')}
       WHERE id = $${paramIndex}
     `;
@@ -349,9 +349,9 @@ async function main() {
     
     console.log(`[${new Date().toISOString()}] Scraping complete. Updated ${successCount} out of ${companies.length} companies.`);
 
-    console.log(`[${new Date().toISOString()}] Connected to database successfully`);
+  /*   console.log(`[${new Date().toISOString()}] Connected to database successfully`);
 
-    await pool.query('SELECT 4');
+   await pool.query('SELECT 4');
     
     const emails = await pool.query(`
       SELECT *
@@ -386,7 +386,7 @@ async function main() {
     `);
 
     easyNotificationsRequest("Raspagem Finalizada em"+process.env.SCRAP_UF, "info", "cadastrobr", "cadastrobr", +total.rows.length+" total de instrias verificadas")
-    
+    */
   } catch (error) {
     console.error(`[${new Date().toISOString()}] FATAL ERROR:`, error.message);
     console.error(`[${new Date().toISOString()}] Stack trace:`, error.stack);
