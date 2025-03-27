@@ -233,6 +233,9 @@ function isEmailProviderDomain(site) {
                     tel1: null
                 };
                 
+                // Adicionar um flag para rastrear erros durante o processamento
+                let hasProcessingError = false;
+                
                 // Busca uma indústria aleatória que precisa de dados
                 const result1 = await pool1.query(`SELECT id, cnpj, site, email, tel1_dd, tel1
                 FROM transfer 
@@ -403,470 +406,507 @@ function isEmailProviderDomain(site) {
                         } catch (siteError) {
                             console.error(`[${new Date().toISOString()}] Error accessing company site: ${bd1.site}`, siteError.message);
                             console.log(`[${new Date().toISOString()}] Will use Google search instead.`);
+                            // Não marca como erro, apenas tenta via Google
                         }
                     }
                 }
                 
                 // Se ainda precisamos buscar no Google (site não existente, erro ao acessar, ou faltam dados)
                 if (needGoogleSearch) {
-                    // Busca informações adicionais no segundo banco de dados
-                    const result2 = await pool2.query(`
-                    SELECT 
-                    c.trade_name, cr."name", c.address_fu, c.address_city_name 
-                    FROM 
-                    rf_company c
-                    LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
-                    LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root 
-                    WHERE 
-                    c.cnpj = '${bd1.cnpj}'
-                    `);
-
-                    if (result2.rows.length === 0) {
-                        console.log(`[${new Date().toISOString()}] No additional info found for CNPJ: ${bd1.cnpj}`);
-                        continue;
-                    }
-
-                    const bd2 = result2.rows[0];                
-
-                    // Monta a consulta para o Google com base nas informações da empresa
-                    const empresaQuery = `${bd2.trade_name || bd2.name} ${bd2.address_city_name || ''} ${bd2.address_fu || ''}`;
-                    const query = `${empresaQuery} ${bd1.cnpj} contato telefone email site`;
-                    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-
-                    console.log(`[${new Date().toISOString()}] Searching Google for: ${query}`);
-
                     try {
-                        // Faz a requisição HTTP para o Google
-                        const response = await axiosInstance.get(searchUrl);
-                        const html = response.data;
-                        
-                        // Verifica se o Google apresentou um CAPTCHA
-                        const isCaptchaPresent = 
-                            response.request.path.includes('/sorry/') ||
-                            response.request.path.includes('captcha') ||
-                            html.includes('unusual traffic') ||
-                            html.includes('verify you') ||
-                            html.includes('confirm you') ||
-                            html.includes('not a robot') ||
-                            html.includes('recaptcha');
+                        // Busca informações adicionais no segundo banco de dados
+                        const result2 = await pool2.query(`
+                        SELECT 
+                        c.trade_name, cr."name", c.address_fu, c.address_city_name 
+                        FROM 
+                        rf_company c
+                        LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
+                        LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root 
+                        WHERE 
+                        c.cnpj = '${bd1.cnpj}'
+                        `);
 
-                        if (isCaptchaPresent) {
-                            console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${captchaCounter + 1}`);
-                            captchaCounter++;
-                            
-                            if (captchaCounter >= 3) {
-                                console.log(`[${new Date().toISOString()}] CAPTCHA detected 3 times in a row. Waiting 3 minutes...`);
-                                // Espera 3 minutos antes de tentar novamente
-                                const captchaWaitTime = 3 * 60 * 1000; // 3 minutos em milissegundos
-                                await sleep(captchaWaitTime);
-                                captchaCounter = 0; // Reset counter after waiting
-                            }
-                            
-                            // Troca o User-Agent para a próxima tentativa
-                            axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
-                            console.log(`[${new Date().toISOString()}] Changed User-Agent for next attempt`);
-                            
-                            // Aguarda um tempo antes de continuar
-                            await sleep(10000);
+                        if (result2.rows.length === 0) {
+                            console.log(`[${new Date().toISOString()}] No additional info found for CNPJ: ${bd1.cnpj}`);
+                            hasProcessingError = true; // Marca como erro pois faltam informações essenciais
                             continue;
                         }
 
-                        // Carrega o HTML com cheerio
-                        const $ = cheerio.load(html);
+                        const bd2 = result2.rows[0];                
 
-                        // Define expressões regulares para encontrar telefone, email e website
-                        const regexTelefone = /(\(?\d{2}\)?\s*\d{4,5}[-.\s]?\d{4})/g;
-                        const regexEmail = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/g;
-                        const regexSite = /(https?:\/\/(?:www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/g;
+                        // Monta a consulta para o Google com base nas informações da empresa
+                        const empresaQuery = `${bd2.trade_name || bd2.name} ${bd2.address_city_name || ''} ${bd2.address_fu || ''}`;
+                        const query = `${empresaQuery} ${bd1.cnpj} contato telefone email site`;
+                        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
-                        // Procurar por links de sites da empresa nos resultados do Google
-                        const companyLinks = [];
-                        
-                        // Prepara termos para comparação
-                        const companyName = (bd2.name || bd2.trade_name || '').toLowerCase();
-                        // Remove caracteres especiais e divide em palavras
-                        const companyWords = companyName
-                            .replace(/[^\w\s]/gi, '')
-                            .split(/\s+/)
-                            .filter(word => word.length > 2); // Ignora palavras muito curtas
+                        console.log(`[${new Date().toISOString()}] Searching Google for: ${query}`);
 
-                        // Substituir a verificação de sites com esta lógica mais restritiva
-
-                        // Extrai todos os links dos resultados de pesquisa do Google
-                        $('a').each((i, link) => {
-                            const href = $(link).attr('href');
+                        try {
+                            // Faz a requisição HTTP para o Google
+                            const response = await axiosInstance.get(searchUrl);
+                            const html = response.data;
                             
-                            // Verifica se é um link externo (não do google)
-                            if (href && href.startsWith('/url?q=')) {
-                                // Extrair a URL real do parâmetro q=
-                                let realUrl = href.substring(7);
-                                const endIndex = realUrl.indexOf('&');
+                            // Verifica se o Google apresentou um CAPTCHA
+                            const isCaptchaPresent = 
+                                response.request.path.includes('/sorry/') ||
+                                response.request.path.includes('captcha') ||
+                                html.includes('unusual traffic') ||
+                                html.includes('verify you') ||
+                                html.includes('confirm you') ||
+                                html.includes('not a robot') ||
+                                html.includes('recaptcha');
+
+                            if (isCaptchaPresent) {
+                                console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${captchaCounter + 1}`);
+                                captchaCounter++;
                                 
-                                if (endIndex !== -1) {
-                                    realUrl = realUrl.substring(0, endIndex);
+                                if (captchaCounter >= 3) {
+                                    console.log(`[${new Date().toISOString()}] CAPTCHA detected 3 times in a row. Waiting 3 minutes...`);
+                                    // Espera 3 minutos antes de tentar novamente
+                                    const captchaWaitTime = 3 * 60 * 1000; // 3 minutos em milissegundos
+                                    await sleep(captchaWaitTime);
+                                    captchaCounter = 0; // Reset counter after waiting
                                 }
                                 
-                                // Ignora URLs do Google, YouTube, Facebook, etc. e gstatic
-                                const ignoreList = [
-                                    'google.com', 
-                                    'gstatic.com',
-                                    'googleusercontent.com',
-                                    'youtube.com', 
-                                    'facebook.com', 
-                                    'linkedin.com', 
-                                    'instagram.com',
-                                    'twitter.com',
-                                    'wikipedia.org',
-                                    'blogspot.com',
-                                    'wordpress.com',
-                                    'gov.br',
-                                    'jus.br',
-                                    'org.br',
-                                    'netdna-ssl.com',
-                                    'shopify.com',
-                                    'amazonaws.com',
-                                    'cloudfront.net',
-                                    'cloudflare.com',
-                                    'gov.br'
-                                ];
-                                const shouldIgnore = ignoreList.some(ignoreDomain => realUrl.includes(ignoreDomain));
+                                // Troca o User-Agent para a próxima tentativa
+                                axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
+                                console.log(`[${new Date().toISOString()}] Changed User-Agent for next attempt`);
                                 
-                                if (!shouldIgnore) {
-                                    try {
-                                        // Extrai o domínio para verificar se está relacionado à empresa
-                                        const url = new URL(realUrl);
-                                        const domain = url.hostname.toLowerCase();
-                                        
-                                        // Limpa o domínio para comparação
-                                        const cleanDomain = domain.replace('www.', '');
-                                        
-                                        // Verifica se o domínio contém partes significativas do nome da empresa
-                                        let isRelated = false;
-                                        
-                                        // Prepara o nome da empresa simplificado (remove LTDA, ME, etc.)
-                                        const simplifiedCompanyName = companyName
-                                            .replace(/\bltda\b|\bme\b|\bepp\b|\bsa\b|\beireli\b|\bcompany\b|\binc\b|\bcorp\b/g, '')
-                                            .trim();
-                                        
-                                        // Prepara uma versão sem espaços para correspondência exata
-                                        const noSpaceCompanyName = simplifiedCompanyName.replace(/\s+/g, '');
-                                        
-                                        // Separa o domínio principal (antes do primeiro ponto)
-                                        const mainDomainPart = cleanDomain.split('.')[0];
-                                        
-                                        // VERIFICAÇÃO 1: Correspondência direta entre nome da empresa e domínio principal
-                                        // Esta é a verificação mais restritiva e confiável
-                                        if (mainDomainPart === noSpaceCompanyName || 
-                                            (noSpaceCompanyName.length > 5 && mainDomainPart.includes(noSpaceCompanyName)) || 
-                                            (mainDomainPart.length > 5 && noSpaceCompanyName.includes(mainDomainPart))) {
-                                            isRelated = true;
-                                            console.log(`[${new Date().toISOString()}] Found exact company match: ${domain} matches "${noSpaceCompanyName}"`);
-                                        }
-                                        
-                                        // VERIFICAÇÃO 2: Correspondência de palavras significativas
-                                        // Se a verificação 1 falhar, procuramos palavras significativas do nome da empresa no domínio
-                                        if (!isRelated) {
-                                            // Filtra apenas palavras significativas (mais de 3 caracteres e não genéricas)
-                                            const significantWords = companyWords.filter(word => 
-                                                word.length > 3 && 
-                                                !['para', 'com', 'dos', 'das', 'ltda', 'epp', 'eireli'].includes(word)
-                                            );
+                                // Aguarda um tempo antes de continuar
+                                await sleep(10000);
+                                continue;
+                            }
+
+                            // Carrega o HTML com cheerio
+                            const $ = cheerio.load(html);
+
+                            // Define expressões regulares para encontrar telefone, email e website
+                            const regexTelefone = /(\(?\d{2}\)?\s*\d{4,5}[-.\s]?\d{4})/g;
+                            const regexEmail = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/g;
+                            const regexSite = /(https?:\/\/(?:www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6})/g;
+
+                            // Procurar por links de sites da empresa nos resultados do Google
+                            const companyLinks = [];
+                            
+                            // Prepara termos para comparação
+                            const companyName = (bd2.name || bd2.trade_name || '').toLowerCase();
+                            // Remove caracteres especiais e divide em palavras
+                            const companyWords = companyName
+                                .replace(/[^\w\s]/gi, '')
+                                .split(/\s+/)
+                                .filter(word => word.length > 2); // Ignora palavras muito curtas
+
+                            // Substituir a verificação de sites com esta lógica mais restritiva
+
+                            // Extrai todos os links dos resultados de pesquisa do Google
+                            $('a').each((i, link) => {
+                                const href = $(link).attr('href');
+                                
+                                // Verifica se é um link externo (não do google)
+                                if (href && href.startsWith('/url?q=')) {
+                                    // Extrair a URL real do parâmetro q=
+                                    let realUrl = href.substring(7);
+                                    const endIndex = realUrl.indexOf('&');
+                                    
+                                    if (endIndex !== -1) {
+                                        realUrl = realUrl.substring(0, endIndex);
+                                    }
+                                    
+                                    // Ignora URLs do Google, YouTube, Facebook, etc. e gstatic
+                                    const ignoreList = [
+                                        'google.com', 
+                                        'gstatic.com',
+                                        'googleusercontent.com',
+                                        'youtube.com', 
+                                        'facebook.com', 
+                                        'linkedin.com', 
+                                        'instagram.com',
+                                        'twitter.com',
+                                        'wikipedia.org',
+                                        'blogspot.com',
+                                        'wordpress.com',
+                                        'gov.br',
+                                        'jus.br',
+                                        'org.br',
+                                        'netdna-ssl.com',
+                                        'shopify.com',
+                                        'amazonaws.com',
+                                        'cloudfront.net',
+                                        'cloudflare.com',
+                                        'gov.br'
+                                    ];
+                                    const shouldIgnore = ignoreList.some(ignoreDomain => realUrl.includes(ignoreDomain));
+                                    
+                                    if (!shouldIgnore) {
+                                        try {
+                                            // Extrai o domínio para verificar se está relacionado à empresa
+                                            const url = new URL(realUrl);
+                                            const domain = url.hostname.toLowerCase();
                                             
-                                            for (const word of significantWords) {
-                                                // A palavra precisa ser uma parte substancial do domínio
-                                                if (word.length > 4 && mainDomainPart.includes(word)) {
-                                                    isRelated = true;
-                                                    console.log(`[${new Date().toISOString()}] Found significant word match: ${domain} contains "${word}"`);
-                                                    break;
-                                                }
+                                            // Limpa o domínio para comparação
+                                            const cleanDomain = domain.replace('www.', '');
+                                            
+                                            // Verifica se o domínio contém partes significativas do nome da empresa
+                                            let isRelated = false;
+                                            
+                                            // Prepara o nome da empresa simplificado (remove LTDA, ME, etc.)
+                                            const simplifiedCompanyName = companyName
+                                                .replace(/\bltda\b|\bme\b|\bepp\b|\bsa\b|\beireli\b|\bcompany\b|\binc\b|\bcorp\b/g, '')
+                                                .trim();
+                                            
+                                            // Prepara uma versão sem espaços para correspondência exata
+                                            const noSpaceCompanyName = simplifiedCompanyName.replace(/\s+/g, '');
+                                            
+                                            // Separa o domínio principal (antes do primeiro ponto)
+                                            const mainDomainPart = cleanDomain.split('.')[0];
+                                            
+                                            // VERIFICAÇÃO 1: Correspondência direta entre nome da empresa e domínio principal
+                                            // Esta é a verificação mais restritiva e confiável
+                                            if (mainDomainPart === noSpaceCompanyName || 
+                                                (noSpaceCompanyName.length > 5 && mainDomainPart.includes(noSpaceCompanyName)) || 
+                                                (mainDomainPart.length > 5 && noSpaceCompanyName.includes(mainDomainPart))) {
+                                                isRelated = true;
+                                                console.log(`[${new Date().toISOString()}] Found exact company match: ${domain} matches "${noSpaceCompanyName}"`);
                                             }
-                                        }
-                                        
-                                        // VERIFICAÇÃO 3: Verificação por combinação de palavras (apenas para nomes compostos)
-                                        // Útil para casos como "Top Clima" que se torna "topclima" no domínio
-                                        if (!isRelated && companyWords.length >= 2) {
-                                            // Apenas verificamos combinações de palavras adjacentes
-                                            for (let i = 0; i < companyWords.length - 1; i++) {
-                                                if (companyWords[i].length > 2 && companyWords[i+1].length > 2) {
-                                                    const combinedWord = companyWords[i] + companyWords[i + 1];
-                                                    if (combinedWord.length > 5 && mainDomainPart === combinedWord) {
+                                            
+                                            // VERIFICAÇÃO 2: Correspondência de palavras significativas
+                                            // Se a verificação 1 falhar, procuramos palavras significativas do nome da empresa no domínio
+                                            if (!isRelated) {
+                                                // Filtra apenas palavras significativas (mais de 3 caracteres e não genéricas)
+                                                const significantWords = companyWords.filter(word => 
+                                                    word.length > 3 && 
+                                                    !['para', 'com', 'dos', 'das', 'ltda', 'epp', 'eireli'].includes(word)
+                                                );
+                                                
+                                                for (const word of significantWords) {
+                                                    // A palavra precisa ser uma parte substancial do domínio
+                                                    if (word.length > 4 && mainDomainPart.includes(word)) {
                                                         isRelated = true;
-                                                        console.log(`[${new Date().toISOString()}] Found exact combined word match: ${domain} equals "${combinedWord}"`);
+                                                        console.log(`[${new Date().toISOString()}] Found significant word match: ${domain} contains "${word}"`);
                                                         break;
                                                     }
                                                 }
                                             }
-                                        }
-                                        
-                                        // VERIFICAÇÃO 4: Verificação por lista de domínios conhecidos
-                                        // Para casos especiais que sabemos que são válidos
-                                        if (!isRelated) {
-                                            const knownDomains = [
-                                                { company: "topclima", domain: "topclima.com.br" },
-                                                // adicione outros domínios conhecidos conforme necessário
-                                            ];
                                             
-                                            for (const known of knownDomains) {
-                                                if (companyName.includes(known.company) && domain === known.domain) {
-                                                    isRelated = true;
-                                                    console.log(`[${new Date().toISOString()}] Found domain from known list: ${domain}`);
-                                                    break;
+                                            // VERIFICAÇÃO 3: Verificação por combinação de palavras (apenas para nomes compostos)
+                                            // Útil para casos como "Top Clima" que se torna "topclima" no domínio
+                                            if (!isRelated && companyWords.length >= 2) {
+                                                // Apenas verificamos combinações de palavras adjacentes
+                                                for (let i = 0; i < companyWords.length - 1; i++) {
+                                                    if (companyWords[i].length > 2 && companyWords[i+1].length > 2) {
+                                                        const combinedWord = companyWords[i] + companyWords[i + 1];
+                                                        if (combinedWord.length > 5 && mainDomainPart === combinedWord) {
+                                                            isRelated = true;
+                                                            console.log(`[${new Date().toISOString()}] Found exact combined word match: ${domain} equals "${combinedWord}"`);
+                                                            break;
+                                                        }
+                                                    }
                                                 }
                                             }
-                                        }
-                                        
-                                        // Verificação adicional: checa se o texto do link indica que é o site oficial
-                                        if (!isRelated) {
-                                            const linkText = $(link).text().toLowerCase();
-                                            // Corrigido para usar linkText.includes em todas as verificações
-                                            if (linkText.includes('site oficial') || 
-                                                linkText.includes('website') || 
-                                                linkText.includes('página oficial') || 
-                                                linkText.includes('oficial')) {
+                                            
+                                            // VERIFICAÇÃO 4: Verificação por lista de domínios conhecidos
+                                            // Para casos especiais que sabemos que são válidos
+                                            if (!isRelated) {
+                                                const knownDomains = [
+                                                    { company: "topclima", domain: "topclima.com.br" },
+                                                    // adicione outros domínios conhecidos conforme necessário
+                                                ];
                                                 
-                                                // Mesmo para links marcados como "site oficial", ainda verificamos alguma relação com o nome
-                                                const hasAnyRelation = companyWords.some(word => 
-                                                    word.length > 3 && mainDomainPart.includes(word)
-                                                );
-                                                
-                                                if (hasAnyRelation) {
-                                                    isRelated = true;
-                                                    console.log(`[${new Date().toISOString()}] Found likely official site: ${domain} (link text suggests official site)`);
-                                                } else {
-                                                    console.log(`[${new Date().toISOString()}] Ignoring potential official site with no name relation: ${domain}`);
+                                                for (const known of knownDomains) {
+                                                    if (companyName.includes(known.company) && domain === known.domain) {
+                                                        isRelated = true;
+                                                        console.log(`[${new Date().toISOString()}] Found domain from known list: ${domain}`);
+                                                        break;
+                                                    }
                                                 }
                                             }
+                                            
+                                            // Verificação adicional: checa se o texto do link indica que é o site oficial
+                                            if (!isRelated) {
+                                                const linkText = $(link).text().toLowerCase();
+                                                // Corrigido para usar linkText.includes em todas as verificações
+                                                if (linkText.includes('site oficial') || 
+                                                    linkText.includes('website') || 
+                                                    linkText.includes('página oficial') || 
+                                                    linkText.includes('oficial')) {
+                                                    
+                                                    // Mesmo para links marcados como "site oficial", ainda verificamos alguma relação com o nome
+                                                    const hasAnyRelation = companyWords.some(word => 
+                                                        word.length > 3 && mainDomainPart.includes(word)
+                                                    );
+                                                    
+                                                    if (hasAnyRelation) {
+                                                        isRelated = true;
+                                                        console.log(`[${new Date().toISOString()}] Found likely official site: ${domain} (link text suggests official site)`);
+                                                    } else {
+                                                        console.log(`[${new Date().toISOString()}] Ignoring potential official site with no name relation: ${domain}`);
+                                                    }
+                                                }
+                                            }
+                                            
+                                            if (isRelated) {
+                                                companyLinks.push(realUrl);
+                                            }
+                                        } catch (e) {
+                                            // Ignora URLs inválidas
+                                            console.log(`[${new Date().toISOString()}] Error processing URL: ${e.message}`);
                                         }
-                                        
-                                        if (isRelated) {
-                                            companyLinks.push(realUrl);
-                                        }
-                                    } catch (e) {
-                                        // Ignora URLs inválidas
-                                        console.log(`[${new Date().toISOString()}] Error processing URL: ${e.message}`);
                                     }
                                 }
-                            }
-                        });
+                            });
 
-                        // Se não encontrou links da empresa, tenta buscar nos resultados especiais do Google
-                        if (companyLinks.length === 0) {
-                            console.log(`[${new Date().toISOString()}] No company links found. Checking for business info cards...`);
-                            
-                            // Procura nos painéis de informação da empresa (Google Business Profile)
-                            $('.kp-header a').each((i, link) => {
-                                const href = $(link).attr('href');
-                                if (href && !href.startsWith('/')) {
-                                    try {
-                                        const url = new URL(href);
-                                        console.log(`[${new Date().toISOString()}] Found website from business profile: ${href}`);
-                                        companyLinks.push(href);
-                                    } catch (e) {
-                                        // Ignora URLs inválidas
-                                    }
-                                }
-                            });
-                            
-                            // Procura no painel lateral de informações
-                            $('.Z1hOCe a[href], .zloOqf a[href]').each((i, link) => {
-                                const href = $(link).attr('href');
-                                if (href && !href.startsWith('/') && !href.includes('google.com')) {
-                                    try {
-                                        console.log(`[${new Date().toISOString()}] Found website from info panel: ${href}`);
-                                        
-                                        console.log(`[${new Date().toISOString()}] Site does not exist or is not reachable: ${siteUrl}`);
-                                        
-                                        // Se o site não existir, remova-o da lista de sites da empresa
-                                        const index = companyLinks.indexOf(siteUrl);
-                                        if (index > -1) {
-                                            companyLinks.splice(index, 1);
-                                        }
-                                        
-                                        // Não use esse site como fonte de dados
-                                        if (contato.site === siteUrl) {
-                                            contato.site = null;
-                                        }
-                                    } catch (e) {
-                                        // Ignora URLs inválidas
-                                        console.log(`[${new Date().toISOString()}] Error processing URL: ${e.message}`);
-                                    }
-                                }
-                            });
-                            
-                            // IMPORTANTE: Se visitou sites da empresa, não deve buscar dados do Google
-                            // A menos que não encontrou todos os dados necessários
-                            if (!contato.telefone || !contato.email) {
-                                console.log(`[${new Date().toISOString()}] Missing some contact data after checking company sites. Supplementing with Google results.`);
+                            // Se não encontrou links da empresa, tenta buscar nos resultados especiais do Google
+                            if (companyLinks.length === 0) {
+                                console.log(`[${new Date().toISOString()}] No company links found. Checking for business info cards...`);
                                 
-                                // Extrai todo o texto da página do Google para complementar os dados faltantes
+                                // Procura nos painéis de informação da empresa (Google Business Profile)
+                                $('.kp-header a').each((i, link) => {
+                                    const href = $(link).attr('href');
+                                    if (href && !href.startsWith('/')) {
+                                        try {
+                                            const url = new URL(href);
+                                            console.log(`[${new Date().toISOString()}] Found website from business profile: ${href}`);
+                                            companyLinks.push(href);
+                                        } catch (e) {
+                                            // Ignora URLs inválidas
+                                        }
+                                    }
+                                });
+                                
+                                // Procura no painel lateral de informações
+                                $('.Z1hOCe a[href], .zloOqf a[href]').each((i, link) => {
+                                    const href = $(link).attr('href');
+                                    if (href && !href.startsWith('/') && !href.includes('google.com')) {
+                                        try {
+                                            console.log(`[${new Date().toISOString()}] Found website from info panel: ${href}`);
+                                            
+                                            console.log(`[${new Date().toISOString()}] Site does not exist or is not reachable: ${siteUrl}`);
+                                            
+                                            // Se o site não existir, remova-o da lista de sites da empresa
+                                            const index = companyLinks.indexOf(siteUrl);
+                                            if (index > -1) {
+                                                companyLinks.splice(index, 1);
+                                            }
+                                            
+                                            // Não use esse site como fonte de dados
+                                            if (contato.site === siteUrl) {
+                                                contato.site = null;
+                                            }
+                                        } catch (e) {
+                                            // Ignora URLs inválidas
+                                            console.log(`[${new Date().toISOString()}] Error processing URL: ${e.message}`);
+                                        }
+                                    }
+                                });
+                                
+                                // IMPORTANTE: Se visitou sites da empresa, não deve buscar dados do Google
+                                // A menos que não encontrou todos os dados necessários
+                                if (!contato.telefone || !contato.email) {
+                                    console.log(`[${new Date().toISOString()}] Missing some contact data after checking company sites. Supplementing with Google results.`);
+                                    
+                                    // Extrai todo o texto da página do Google para complementar os dados faltantes
+                                    const pageText = $('body').text();
+                                    
+                                    // Apenas procura o telefone se ainda não o encontrou nos sites da empresa
+                                    if (!contato.telefone) {
+                                        const infoTelefone = extrairTelefone(pageText);
+                                        if (infoTelefone) {
+                                            contato.telefone = infoTelefone.telefoneCompleto;
+                                            contato.tel1_dd = infoTelefone.tel1_dd;
+                                            contato.tel1 = infoTelefone.tel1;
+                                            console.log(`[${new Date().toISOString()}] Telefone complementado da página do Google: ${contato.telefone}, DDD: ${contato.tel1_dd}, Número: ${contato.tel1}`);
+                                        }
+                                    }
+                                    
+                                    // Apenas procura o email se ainda não o encontrou nos sites da empresa
+                                    if (!contato.email) {
+                                        const emailEncontrado = extrairEmail(pageText);
+                                        if (emailEncontrado) {
+                                            contato.email = emailEncontrado;
+                                            console.log(`[${new Date().toISOString()}] Email complementado da página do Google: ${contato.email}`);
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Processa dados do Google quando nenhum site foi encontrado
+                                console.log(`[${new Date().toISOString()}] No company-specific sites found. Using Google results page.`);
+                                
+                                // Extrai todo o texto da página do Google
                                 const pageText = $('body').text();
                                 
-                                // Apenas procura o telefone se ainda não o encontrou nos sites da empresa
-                                if (!contato.telefone) {
-                                    const infoTelefone = extrairTelefone(pageText);
-                                    if (infoTelefone) {
-                                        contato.telefone = infoTelefone.telefoneCompleto;
-                                        contato.tel1_dd = infoTelefone.tel1_dd;
-                                        contato.tel1 = infoTelefone.tel1;
-                                        console.log(`[${new Date().toISOString()}] Telefone complementado da página do Google: ${contato.telefone}, DDD: ${contato.tel1_dd}, Número: ${contato.tel1}`);
+                                // Procura telefone nos resultados do Google
+                                const infoTelefone = extrairTelefone(pageText);
+                                if (infoTelefone) {
+                                    contato.telefone = infoTelefone.telefoneCompleto;
+                                    contato.tel1_dd = infoTelefone.tel1_dd;
+                                    contato.tel1 = infoTelefone.tel1;
+                                    console.log(`[${new Date().toISOString()}] Telefone encontrado nos resultados do Google: ${contato.telefone}, DDD: ${contato.tel1_dd}, Número: ${contato.tel1}`);
+                                }
+                                
+                                // Procura email nos resultados do Google
+                                const emailEncontrado = extrairEmail(pageText);
+                                if (emailEncontrado) {
+                                    contato.email = emailEncontrado;
+                                    console.log(`[${new Date().toISOString()}] Email encontrado nos resultados do Google: ${contato.email}`);
+                                }
+                                
+                                // Procura site nos resultados do Google
+                                const matchSite = pageText.match(regexSite);
+                                if (matchSite && matchSite.length) {
+                                    // Filtra para evitar sites conhecidos não relacionados à empresa
+                                    const ignoreList = [
+                                        'google.com', 'youtube.com', 'facebook.com', 'linkedin.com', 
+                                        'instagram.com', 'twitter.com', 'wikipedia.org'
+                                    ];
+                                    
+                                    for (const potentialSite of matchSite) {
+                                        const shouldIgnore = ignoreList.some(ignoreSite => 
+                                            potentialSite.includes(ignoreSite)
+                                        );
+                                        
+                                        if (!shouldIgnore) {
+                                            contato.site = potentialSite;
+                                            console.log(`[${new Date().toISOString()}] Site potencial encontrado nos resultados do Google: ${contato.site}`);
+                                            break;
+                                        }
                                     }
                                 }
                                 
-                                // Apenas procura o email se ainda não o encontrou nos sites da empresa
-                                if (!contato.email) {
-                                    const emailEncontrado = extrairEmail(pageText);
-                                    if (emailEncontrado) {
-                                        contato.email = emailEncontrado;
-                                        console.log(`[${new Date().toISOString()}] Email complementado da página do Google: ${contato.email}`);
+                                // Procura especificamente por blocos de informação de contato no Google
+                                $('.kp-header, .Z1hOCe, .zloOqf, .ruhjFe').each((_, element) => {
+                                    const infoBlockText = $(element).text();
+                                    
+                                    // Se ainda não temos telefone, tenta extrair deste bloco
+                                    if (!contato.telefone) {
+                                        const blockTelefone = extrairTelefone(infoBlockText);
+                                        if (blockTelefone) {
+                                            contato.telefone = blockTelefone.telefoneCompleto;
+                                            contato.tel1_dd = blockTelefone.tel1_dd;
+                                            contato.tel1 = blockTelefone.tel1;
+                                            console.log(`[${new Date().toISOString()}] Telefone encontrado em bloco de informação do Google: ${contato.telefone}`);
+                                        }
+                                    }
+                                    
+                                    // Se ainda não temos email, tenta extrair deste bloco
+                                    if (!contato.email) {
+                                        const blockEmail = extrairEmail(infoBlockText);
+                                        if (blockEmail) {
+                                            contato.email = blockEmail;
+                                            console.log(`[${new Date().toISOString()}] Email encontrado em bloco de informação do Google: ${contato.email}`);
+                                        }
+                                    }
+                                });
+                            }
+                        } catch (error) {
+                            console.error(`[${new Date().toISOString()}] Error fetching search results:`, error.message);
+                            
+                            // Tratamento específico para erro 429 (Too Many Requests)
+                            if (error.response?.status === 429) {
+                                console.error(`[${new Date().toISOString()}] RATE LIMIT DETECTED (429)! Google is blocking our requests.`);
+                                
+                                // Implementa um backoff exponencial - quanto mais receber 429, mais tempo espera
+                                const backoffTime = Math.pow(2, captchaCounter + 2) * 10000; // 40s, 80s, 160s, etc.
+                                console.log(`[${new Date().toISOString()}] Waiting ${backoffTime/1000} seconds before retrying...`);
+                                
+                                // Incrementa o contador de captcha (reutilizando para o backoff)
+                                captchaCounter++;
+                                
+                                // Troca o User-Agent para próxima tentativa
+                                axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
+                                console.log(`[${new Date().toISOString()}] Changed User-Agent to: ${axiosInstance.defaults.headers['User-Agent']}`);
+                                
+                                // Espera o tempo de backoff antes de continuar
+                                await sleep(backoffTime);
+                                continue; // Continua com o mesmo registro após a espera
+                            }
+                            
+                            // Tratamento para outros erros (existente)
+                            if (error.code === 'ECONNABORTED' || error.response?.status === 403) {
+                                console.log(`[${new Date().toISOString()}] Connection issue or access denied. Waiting 30 seconds...`);
+                                await sleep(30000);
+                                // Troca o User-Agent para a próxima tentativa
+                                axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
+                            }
+                            hasProcessingError = true; // Marca como erro
+                            continue; // Pula para o próximo registro
+                        }
+
+                        // Se não houve erro, tenta salvar os dados no banco
+                        if (!hasProcessingError) {
+                            try {
+                                console.log(`[${new Date().toISOString()}] Contact data found:`, contato);
+
+                                // Cria o array de campos e valores para atualização
+                                const fieldsToUpdate = [];
+                                const valuesToUpdate = [];
+                                let paramIndex = 1;
+
+                                // Adiciona campos somente se tiverem valores
+                                if (contato.tel1_dd) {
+                                    fieldsToUpdate.push(`tel1_dd = $${paramIndex}`);
+                                    valuesToUpdate.push(contato.tel1_dd);
+                                    paramIndex++;
+                                }
+
+                                if (contato.tel1) {
+                                    fieldsToUpdate.push(`tel1 = $${paramIndex}`);
+                                    valuesToUpdate.push(contato.tel1);
+                                    paramIndex++;
+                                }
+
+                                if (contato.email && (!bd1.email || bd1.email === '')) {
+                                    fieldsToUpdate.push(`email = $${paramIndex}`);
+                                    valuesToUpdate.push(contato.email);
+                                    paramIndex++;
+                                }
+
+                                if (contato.site) {
+                                    fieldsToUpdate.push(`site = $${paramIndex}`);
+                                    valuesToUpdate.push(contato.site);
+                                    paramIndex++;
+                                }
+
+                                // Sempre adiciona update_google = 1 e at = 2
+                                fieldsToUpdate.push(`update_google = 1`);
+                                fieldsToUpdate.push(`at = 2`);
+                                
+                                // Adiciona o ID como último parâmetro
+                                valuesToUpdate.push(bd1.id);
+
+                                // Atualiza o banco de dados somente se houver campos para atualizar
+                                if (fieldsToUpdate.length > 0) {
+                                    const updateQuery = `
+                                    UPDATE transfer
+                                    SET ${fieldsToUpdate.join(', ')}
+                                    WHERE id = $${paramIndex}
+                                    `;
+
+                                    try {
+                                        await pool1.query(updateQuery, valuesToUpdate);
+                                        console.log(`[${new Date().toISOString()}] Updated record ID: ${bd1.id}`);
+                                    } catch (error) {
+                                        console.error(`[${new Date().toISOString()}] Error updating record ID ${bd1.id}:`, error.message);
+                                        // Não incrementa o contador de registros processados em caso de erro no banco
+                                        continue;
                                     }
                                 }
+
+                                recordsProcessed++;
+                                console.log(`[${new Date().toISOString()}] Records processed: ${recordsProcessed}`);
+
+                            } catch (error) {
+                                console.error(`[${new Date().toISOString()}] Error during data processing:`, error);
+                                // Erro na formatação/processamento dos dados, pula para o próximo registro
+                                continue;
                             }
                         } else {
-                            // Processa dados do Google quando nenhum site foi encontrado
-                            console.log(`[${new Date().toISOString()}] No company-specific sites found. Using Google results page.`);
-                            
-                            // Extrai todo o texto da página do Google
-                            const pageText = $('body').text();
-                            
-                            // Procura telefone nos resultados do Google
-                            const infoTelefone = extrairTelefone(pageText);
-                            if (infoTelefone) {
-                                contato.telefone = infoTelefone.telefoneCompleto;
-                                contato.tel1_dd = infoTelefone.tel1_dd;
-                                contato.tel1 = infoTelefone.tel1;
-                                console.log(`[${new Date().toISOString()}] Telefone encontrado nos resultados do Google: ${contato.telefone}, DDD: ${contato.tel1_dd}, Número: ${contato.tel1}`);
-                            }
-                            
-                            // Procura email nos resultados do Google
-                            const emailEncontrado = extrairEmail(pageText);
-                            if (emailEncontrado) {
-                                contato.email = emailEncontrado;
-                                console.log(`[${new Date().toISOString()}] Email encontrado nos resultados do Google: ${contato.email}`);
-                            }
-                            
-                            // Procura site nos resultados do Google
-                            const matchSite = pageText.match(regexSite);
-                            if (matchSite && matchSite.length) {
-                                // Filtra para evitar sites conhecidos não relacionados à empresa
-                                const ignoreList = [
-                                    'google.com', 'youtube.com', 'facebook.com', 'linkedin.com', 
-                                    'instagram.com', 'twitter.com', 'wikipedia.org'
-                                ];
-                                
-                                for (const potentialSite of matchSite) {
-                                    const shouldIgnore = ignoreList.some(ignoreSite => 
-                                        potentialSite.includes(ignoreSite)
-                                    );
-                                    
-                                    if (!shouldIgnore) {
-                                        contato.site = potentialSite;
-                                        console.log(`[${new Date().toISOString()}] Site potencial encontrado nos resultados do Google: ${contato.site}`);
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            // Procura especificamente por blocos de informação de contato no Google
-                            $('.kp-header, .Z1hOCe, .zloOqf, .ruhjFe').each((_, element) => {
-                                const infoBlockText = $(element).text();
-                                
-                                // Se ainda não temos telefone, tenta extrair deste bloco
-                                if (!contato.telefone) {
-                                    const blockTelefone = extrairTelefone(infoBlockText);
-                                    if (blockTelefone) {
-                                        contato.telefone = blockTelefone.telefoneCompleto;
-                                        contato.tel1_dd = blockTelefone.tel1_dd;
-                                        contato.tel1 = blockTelefone.tel1;
-                                        console.log(`[${new Date().toISOString()}] Telefone encontrado em bloco de informação do Google: ${contato.telefone}`);
-                                    }
-                                }
-                                
-                                // Se ainda não temos email, tenta extrair deste bloco
-                                if (!contato.email) {
-                                    const blockEmail = extrairEmail(infoBlockText);
-                                    if (blockEmail) {
-                                        contato.email = blockEmail;
-                                        console.log(`[${new Date().toISOString()}] Email encontrado em bloco de informação do Google: ${contato.email}`);
-                                    }
-                                }
-                            });
+                            console.log(`[${new Date().toISOString()}] Skipping database update due to processing errors for CNPJ: ${bd1.cnpj}`);
                         }
                     } catch (error) {
-                        console.error(`[${new Date().toISOString()}] Error fetching search results:`, error.message);
-                        
-                        // Se for erro de timeout ou acesso negado, espere e continue
-                        if (error.code === 'ECONNABORTED' || error.response?.status === 403) {
-                            console.log(`[${new Date().toISOString()}] Connection issue or access denied. Waiting 30 seconds...`);
-                            await sleep(30000);
-                            // Troca o User-Agent para a próxima tentativa
-                            axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
-                        }
+                        console.error(`[${new Date().toISOString()}] Error querying database for company info:`, error.message);
+                        hasProcessingError = true; // Marca como erro
+                        continue; // Pula para o próximo registro
                     }
-
-                    try {
-                        console.log(`[${new Date().toISOString()}] Contact data found:`, contato);
-
-                        // Cria o array de campos e valores para atualização
-                        const fieldsToUpdate = [];
-                        const valuesToUpdate = [];
-                        let paramIndex = 1;
-
-                        // Adiciona campos somente se tiverem valores
-                        if (contato.tel1_dd) {
-                            fieldsToUpdate.push(`tel1_dd = $${paramIndex}`);
-                            valuesToUpdate.push(contato.tel1_dd);
-                            paramIndex++;
-                        }
-
-                        if (contato.tel1) {
-                            fieldsToUpdate.push(`tel1 = $${paramIndex}`);
-                            valuesToUpdate.push(contato.tel1);
-                            paramIndex++;
-                        }
-
-                        if (contato.email && (!bd1.email || bd1.email === '')) {
-                            fieldsToUpdate.push(`email = $${paramIndex}`);
-                            valuesToUpdate.push(contato.email);
-                            paramIndex++;
-                        }
-
-                        if (contato.site) {
-                            fieldsToUpdate.push(`site = $${paramIndex}`);
-                            valuesToUpdate.push(contato.site);
-                            paramIndex++;
-                        }
-
-                        // Sempre adiciona update_google = 1 e at = 2
-                        fieldsToUpdate.push(`update_google = 1`);
-                        fieldsToUpdate.push(`at = 2`);
-                        
-                        // Adiciona o ID como último parâmetro
-                        valuesToUpdate.push(bd1.id);
-
-                        // Atualiza o banco de dados somente se houver campos para atualizar
-                        if (fieldsToUpdate.length > 0) {
-                            const updateQuery = `
-                            UPDATE transfer
-                            SET ${fieldsToUpdate.join(', ')}
-                            WHERE id = $${paramIndex}
-                            `;
-
-                            try {
-                                await pool1.query(updateQuery, valuesToUpdate);
-                                console.log(`[${new Date().toISOString()}] Updated record ID: ${bd1.id}`);
-                            } catch (error) {
-                                console.error(`[${new Date().toISOString()}] Error updating record ID ${bd1.id}:`, error.message);
-                            }
-                        }
-
-                        recordsProcessed++;
-                        console.log(`[${new Date().toISOString()}] Records processed: ${recordsProcessed}`);
-
-                    } catch (error) {
-                        console.error(`[${new Date().toISOString()}] Error during scraping:`, error);
-                    }
-                    // Remove the finally block that closes connections here
-                    // This was causing the pools to close after processing the first record
                 }
             }
 
