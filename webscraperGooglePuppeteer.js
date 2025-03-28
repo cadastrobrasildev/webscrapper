@@ -201,11 +201,7 @@ function isEmailProviderDomain(site) {
 async function initBrowser() {
     return await puppeteer.launch({
         headless: true, // Usa o modo visível para depuração
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        defaultViewport: {
-            width: 1920,
-            height: 1080
-        }
+        args: ['--no-sandbox', '--disable-setuid-sandbox']       
     });
 }
 
