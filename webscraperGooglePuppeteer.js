@@ -26,7 +26,7 @@ const pool2 = new Pool({
     port: 5432,
     connectionTimeoutMillis: 180000
 });
-
+console.log("v1")
 /**
  * Função para extrair informações de telefone de um texto
  * @param {string} texto - O texto contendo números de telefone
