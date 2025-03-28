@@ -9,6 +9,21 @@ const { Pool } = require('pg');
 const sleep = ms => new Promise(res => setTimeout(res, ms));
 require('dotenv').config();
 puppeteer.use(StealthPlugin());
+const os = require('os');
+
+const getLocalIP = () => {
+    const interfaces = os.networkInterfaces();
+    for (const iface of Object.values(interfaces)) {
+        for (const config of iface) {
+            if (config.family === 'IPv4' && !config.internal) {
+                return config.address;
+            }
+        }
+    }
+    return 'IP não encontrado';
+};
+
+console.log(`IP do Servidor: ${getLocalIP()}`);
 
 const pool1 = new Pool({
     host: 'shortline.proxy.rlwy.net',
@@ -27,7 +42,7 @@ const pool2 = new Pool({
     port: 5432,
     connectionTimeoutMillis: 180000
 });
-console.log("v3")
+console.log("v4")
 /**
  * Função para extrair informações de telefone de um texto
  * @param {string} texto - O texto contendo números de telefone
@@ -219,6 +234,7 @@ async function searchGoogle(browser, query, counter) {
     try {
         // Configura um user agent aleatório
         const userAgent = randomUseragent.getRandom();
+        console.log(userAgent)
         await page.setUserAgent(userAgent);
         
         // Configura headers adicionais para parecer mais com um navegador real
