@@ -7,7 +7,8 @@
     "transfer": "node transfer.js",
     "transfer2": "node transfer2.js",
     "scrap_site": "node webScraper.js",
-    "scrap_google": "node webscraperGoogleCheerio.js"
+    "scrap_google": "node webscraperGoogleCheerio.js",
+    "scrap_google_pup": "node webscraperGooglePuppeteer.js"
   },
   "author": "",
   "license": "ISC",
