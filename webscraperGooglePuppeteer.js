@@ -209,9 +209,10 @@ async function initBrowser() {
  * Realiza uma pesquisa no Google usando Puppeteer
  * @param {Browser} browser - Instância do navegador Puppeteer
  * @param {string} query - A consulta de pesquisa
- * @returns {Promise<Object>} Resultado da pesquisa
+ * @param {number} counter - Contador de CAPTCHAs
+ * @returns {Promise<Object>} Resultado da pesquisa e contador atualizado
  */
-async function searchGoogle(browser, query) {
+async function searchGoogle(browser, query, counter) {
     const page = await browser.newPage();
     
     try {
@@ -255,8 +256,8 @@ async function searchGoogle(browser, query) {
 
         if (isCaptchaPresent) {
             console.log(isCaptchaPresent)
-            console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${captchaCounter + 1}`);
-            captchaCounter++;
+            console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${counter + 1}`);
+            counter++;
             
             // Fecha a página atual
             await page.close();
@@ -265,17 +266,17 @@ async function searchGoogle(browser, query) {
             await browser.close();
             console.log(`[${new Date().toISOString()}] Browser closed due to CAPTCHA.`);
             
-            if (captchaCounter >= 3) {
+            if (counter >= 3) {
                 console.log(`[${new Date().toISOString()}] CAPTCHA detected 3 times in a row. Waiting 3 minutes...`);
                 // Espera 3 minutos antes de tentar novamente
                 const captchaWaitTime = 3 * 60 * 1000; // 3 minutos em milissegundos
                 await sleep(captchaWaitTime);
-                captchaCounter = 0; // Reset counter after waiting
+                counter = 0; // Reset counter after waiting
             }
             
             // Reinicia o processo do começo
             console.log(`[${new Date().toISOString()}] Restarting process from beginning...`);
-            return { captchaDetected: true, html: null, restartProcess: true };
+            return { captchaDetected: true, html: null, restartProcess: true, counter };
         }
         
         // Obtém o HTML da página
@@ -284,7 +285,7 @@ async function searchGoogle(browser, query) {
         // Fecha a página (não o navegador)
         await page.close();
         
-        return { captchaDetected: false, html };
+        return { captchaDetected: false, html, counter };
     } catch (error) {
         console.error(`[${new Date().toISOString()}] Error during Puppeteer search:`, error.message);
         
@@ -568,8 +569,11 @@ async function visitCompanySite(browser, site) {
                         console.log(`[${new Date().toISOString()}] Searching Google for: ${query}`);
 
                         try {
-                            // Utiliza o Puppeteer para buscar no Google, passando o navegador já aberto
-                            const searchResult = await searchGoogle(browser, query);
+                            // Utiliza o Puppeteer para buscar no Google, passando o navegador já aberto e o contador
+                            const searchResult = await searchGoogle(browser, query, captchaCounter);
+                            
+                            // Atualiza o contador com o valor retornado
+                            captchaCounter = searchResult.counter;
                             
                             // Verifica se foi detectado CAPTCHA
                             if (searchResult.captchaDetected) {
@@ -588,8 +592,18 @@ async function visitCompanySite(browser, site) {
 
                             const html = searchResult.html;
                             
-                            // O restante do processamento continua igual, usando cheerio para analisar o HTML
+                            // Verifica se o HTML é válido antes de prosseguir
+                            if (!html) {
+                                console.error(`[${new Date().toISOString()}] Invalid or empty HTML returned from search`);
+                                hasProcessingError = true;
+                                continue; // Pula para a próxima iteração do loop principal
+                            }
+                            
+                            // Carrega o HTML com o Cheerio para análise
+                            console.log(`[${new Date().toISOString()}] Loading search results HTML with Cheerio`);
                             const $ = cheerio.load(html);
+                            
+                            // O restante do processamento continua igual, usando cheerio para analisar o HTML
 
                             // Define expressões regulares para encontrar telefone, email e website
                             const regexTelefone = /(\(?\d{2}\)?\s*\d{4,5}[-.\s]?\d{4})/g;
@@ -915,7 +929,7 @@ async function visitCompanySite(browser, site) {
                             console.log(`[${new Date().toISOString()}] Connection issue or access denied. Skipping to next record.`);
                             await sleep(5000); // Pequena pausa antes de continuar
                             hasProcessingError = true; // Marca como erro
-                            break; // Sai do loop interno para ir para o próximo registro
+                            continue; // Pula para a próxima iteração do loop principal
                         }
 
                         // Se não houve erro, tenta salvar os dados no banco
