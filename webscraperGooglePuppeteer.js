@@ -276,7 +276,8 @@ async function searchGoogle(browser, query, counter) {
             
             // Reinicia o processo do começo
             console.log(`[${new Date().toISOString()}] Restarting process from beginning...`);
-            return { captchaDetected: true, html: null, restartProcess: true, counter };
+            return await startScraping();
+           
         }
         
         // Obtém o HTML da página
