@@ -39,7 +39,7 @@ const pool2 = new Pool({
 
             // Lança o navegador com configurações para evitar detecção
             browser = await puppeteer.launch({
-                headless: true, // Mude para false se quiser visualizar o processo
+                headless: false, // Mude para false se quiser visualizar o processo
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             });
 

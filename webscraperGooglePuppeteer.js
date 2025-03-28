@@ -8,6 +8,7 @@ const randomUseragent = require('random-useragent');
 const { Pool } = require('pg');
 const sleep = ms => new Promise(res => setTimeout(res, ms));
 require('dotenv').config();
+puppeteer.use(StealthPlugin());
 
 const pool1 = new Pool({
     host: 'shortline.proxy.rlwy.net',
@@ -200,7 +201,7 @@ function isEmailProviderDomain(site) {
  */
 async function initBrowser() {
     return await puppeteer.launch({
-        headless: true, // Usa o modo visível para depuração
+        headless: false, // Usa o modo visível para depuração
         args: ['--no-sandbox', '--disable-setuid-sandbox']       
     });
 }
@@ -276,8 +277,8 @@ async function searchGoogle(browser, query, counter) {
             
             // Reinicia o processo do começo
             console.log(`[${new Date().toISOString()}] Restarting process from beginning...`);
-            return await startScraping();
-           
+            
+            return { captchaDetected: true, html: null, restartProcess: true, counter };
         }
         
         // Obtém o HTML da página
