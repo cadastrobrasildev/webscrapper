@@ -27,7 +27,7 @@ const pool2 = new Pool({
     port: 5432,
     connectionTimeoutMillis: 180000
 });
-console.log("v2")
+console.log("v3")
 /**
  * Função para extrair informações de telefone de um texto
  * @param {string} texto - O texto contendo números de telefone
@@ -264,10 +264,10 @@ async function searchGoogle(browser, query, counter) {
             await page.close();
             
             // Fecha o browser atual
-            await browser.close();
-            console.log(`[${new Date().toISOString()}] Browser closed due to CAPTCHA.`);
+          //  await browser.close();
+          //  console.log(`[${new Date().toISOString()}] Browser closed due to CAPTCHA.`);
             
-            if (counter >= 3) {
+            if (counter >= 15) {
                 console.log(`[${new Date().toISOString()}] CAPTCHA detected 3 times in a row. Waiting 3 minutes...`);
                 // Espera 3 minutos antes de tentar novamente
                 const captchaWaitTime = 3 * 60 * 1000; // 3 minutos em milissegundos
@@ -366,11 +366,12 @@ async function visitCompanySite(browser, site) {
     let captchaCounter = 0;
     let browser = null;
     
+    browser = await initBrowser();
+
     async function startScraping() {
         try {
             // Inicializa o navegador uma única vez
-            console.log(`[${new Date().toISOString()}] Initializing browser...`);
-            browser = await initBrowser();
+            console.log(`[${new Date().toISOString()}] Initializing browser...`);            
             console.log(`[${new Date().toISOString()}] Browser initialized successfully!`);
             
             // Verifica conexão com banco de dados
