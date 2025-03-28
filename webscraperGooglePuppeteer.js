@@ -199,7 +199,7 @@ function isEmailProviderDomain(site) {
  */
 async function initBrowser() {
     return await puppeteer.launch({
-        headless: false, // Usa o modo visível para depuração
+        headless: true, // Usa o modo visível para depuração
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
         defaultViewport: {
             width: 1920,
