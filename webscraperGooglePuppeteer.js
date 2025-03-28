@@ -237,23 +237,45 @@ async function searchGoogle(browser, query) {
         // Adiciona um pequeno atraso para parecer mais humano
         await sleep(Math.floor(Math.random() * 3000) + 1000);
         
-        // Verifica se há CAPTCHA - Adicionando a mensagem em português
-        const hasCaptcha = await page.evaluate(() => {
-            return document.body.innerText.includes('unusual traffic') || 
-                   document.body.innerText.includes('verify you') ||
-                   document.body.innerText.includes('confirm you') ||
-                   document.body.innerText.includes('not a robot') ||
-                   document.body.innerText.includes('recaptcha') ||
-                   // Mensagens em português
-                   document.body.innerText.includes('tráfego incomum') ||
-                   document.body.innerText.includes('Nossos sistemas detectaram') ||
-                   document.body.innerText.includes('Esta página verifica');
-        });
-        
-        if (hasCaptcha) {
-            console.error(`[${new Date().toISOString()}] CAPTCHA detected in Portuguese or English! Closing only this tab.`);
-            await page.close(); // Fechamos apenas a aba atual, não o navegador inteiro
-            return { captchaDetected: true, html: null };
+        // Verificação de CAPTCHA melhorada
+        const pageUrl = page.url();
+        const pageContent = await page.content();
+        const isCaptchaPresent =
+            pageUrl.includes('/sorry/') ||
+            pageUrl.includes('captcha') ||
+            pageContent.includes('unusual traffic') ||
+            pageContent.includes('verify you') ||
+            pageContent.includes('confirm you') ||
+            pageContent.includes('not a robot') ||
+            pageContent.includes('recaptcha') ||
+            // Mensagens em português
+            pageContent.includes('tráfego incomum') ||
+            pageContent.includes('Nossos sistemas detectaram') ||
+            pageContent.includes('Esta página verifica');
+
+        if (isCaptchaPresent) {
+            console.log(isCaptchaPresent)
+            console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${captchaCounter + 1}`);
+            captchaCounter++;
+            
+            // Fecha a página atual
+            await page.close();
+            
+            // Fecha o browser atual
+            await browser.close();
+            console.log(`[${new Date().toISOString()}] Browser closed due to CAPTCHA.`);
+            
+            if (captchaCounter >= 3) {
+                console.log(`[${new Date().toISOString()}] CAPTCHA detected 3 times in a row. Waiting 3 minutes...`);
+                // Espera 3 minutos antes de tentar novamente
+                const captchaWaitTime = 3 * 60 * 1000; // 3 minutos em milissegundos
+                await sleep(captchaWaitTime);
+                captchaCounter = 0; // Reset counter after waiting
+            }
+            
+            // Reinicia o processo do começo
+            console.log(`[${new Date().toISOString()}] Restarting process from beginning...`);
+            return { captchaDetected: true, html: null, restartProcess: true };
         }
         
         // Obtém o HTML da página
@@ -551,12 +573,16 @@ async function visitCompanySite(browser, site) {
                             
                             // Verifica se foi detectado CAPTCHA
                             if (searchResult.captchaDetected) {
-                                console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Skipping this record.`);
-                                // Incrementa o contador apenas para estatística
-                                captchaCounter++;
+                                console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED!`);
                                 
-                                // Marca como erro e pula para o próximo registro
-                                console.log(`[${new Date().toISOString()}] Moving to next record... (CAPTCHA count: ${captchaCounter})`);
+                                // Verifica se precisamos reiniciar todo o processo
+                                if (searchResult.restartProcess) {
+                                    console.log(`[${new Date().toISOString()}] Restarting entire scraping process...`);
+                                    return await startScraping(); // Reinicia todo o processo
+                                }
+                                
+                                // Se não recebeu flag de reinício, apenas pula para o próximo registro
+                                console.log(`[${new Date().toISOString()}] Skipping this record... (CAPTCHA count: ${captchaCounter})`);
                                 continue; // Pula para a próxima iteração do loop principal
                             }
 
