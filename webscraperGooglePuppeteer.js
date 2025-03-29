@@ -99,19 +99,19 @@ function extrairTelefone(texto) {
  * @returns {string|null} - O e-mail encontrado ou null se não encontrado
  */
 function extrairEmail(texto) {
-    // Expressão regular para encontrar e-mails
-    const regexEmail = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/g;
-
+    // Expressão regular melhorada para encontrar e-mails - similar à que você testou no console
+    const regexEmail = /[\w._-]+@[\w._-]+\.[\w._-]+/g;
+    
     // Encontra todos os e-mails no texto
     const emails = texto.match(regexEmail);
-
+    
     if (!emails || emails.length === 0) {
         console.log(`[${new Date().toISOString()}] Nenhum e-mail encontrado no texto com regex padrão`);
-
+        
         // Tenta encontrar emails ofuscados (por exemplo, "contato (at) dominio (dot) com")
         const regexOfuscado = /([a-zA-Z0-9._-]+)[\s]*[\[\(]?at[\]\)]?[\s]*([a-zA-Z0-9._-]+)[\s]*[\[\(]?dot[\]\)]?[\s]*([a-zA-Z0-9._-]+)/gi;
         const ofuscados = texto.match(regexOfuscado);
-
+        
         if (ofuscados && ofuscados.length > 0) {
             // Converte o primeiro email ofuscado para formato normal
             const partes = ofuscados[0].match(/([a-zA-Z0-9._-]+)[\s]*[\[\(]?at[\]\)]?[\s]*([a-zA-Z0-9._-]+)[\s]*[\[\(]?dot[\]\)]?[\s]*([a-zA-Z0-9._-]+)/i);
@@ -121,59 +121,50 @@ function extrairEmail(texto) {
                 return emailReconstruido;
             }
         }
-
+        
         return null;
     }
-
-    // Itera pelos e-mails encontrados para escolher o mais relevante
+    
+    console.log(`[${new Date().toISOString()}] ${emails.length} e-mails encontrados no texto`);
+    
+    // Lista de domínios de serviços de e-mail conhecidos
+    const dominiosGenericos = [
+        'gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 
+        'live.com', 'icloud.com', 'aol.com', 'mail.com',
+        'protonmail.com', 'yandex.com', 'zoho.com'
+    ];
+    
+    // Lista de prefixos de e-mail genéricos
+    const emailsGenericos = [
+        'info@', 'contato@', 'contact@', 'mail@', 'email@',
+        'support@', 'suporte@', 'noreply@', 'no-reply@',
+        'newsletter@', 'news@', 'marketing@', 'webmaster@',
+        'admin@', 'administrador@', 'administrator@',
+        'help@', 'ajuda@', 'sac@'
+    ];
+    
+    // Primeiro, procura por emails de domínio específico (não de serviços comuns)
     for (const email of emails) {
-        console.log(`[${new Date().toISOString()}] E-mail encontrado (bruto): ${email}`);
-
-        // Verifica se o e-mail tem formato válido
-        if (email.indexOf('@') > 0 && email.indexOf('.') > 0) {
-            // Ignora e-mails genéricos ou de serviços conhecidos
-            const dominiosGenericos = [
-                'gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com',
-                'live.com', 'icloud.com', 'aol.com', 'mail.com',
-                'protonmail.com', 'yandex.com', 'zoho.com'
-            ];
-
-            const dominio = email.split('@')[1].toLowerCase();
-
-            // Se for um domínio conhecido de serviço de e-mail, continua procurando
-            if (dominiosGenericos.includes(dominio)) {
-                console.log(`[${new Date().toISOString()}] E-mail de serviço comum: ${email} - continuando busca`);
-                continue;
-            }
-
-            // Verifica se o e-mail não parece ser de newsletter, suporte, etc.
-            const emailsGenericos = [
-                'info@', 'contato@', 'contact@', 'mail@', 'email@',
-                'support@', 'suporte@', 'noreply@', 'no-reply@',
-                'newsletter@', 'news@', 'marketing@', 'webmaster@',
-                'admin@', 'administrador@', 'administrator@',
-                'help@', 'ajuda@', 'sac@'
-            ];
-
-            // Se for um e-mail genérico, continue procurando
-            if (emailsGenericos.some(prefix => email.toLowerCase().startsWith(prefix))) {
-                console.log(`[${new Date().toISOString()}] E-mail genérico: ${email} - continuando busca`);
-                continue;
-            }
-
-            console.log(`[${new Date().toISOString()}] E-mail válido encontrado: ${email}`);
+        const dominio = email.split('@')[1].toLowerCase();
+        
+        if (!dominiosGenericos.includes(dominio) && 
+            !emailsGenericos.some(prefix => email.toLowerCase().startsWith(prefix))) {
+            console.log(`[${new Date().toISOString()}] E-mail de domínio específico encontrado: ${email}`);
             return email;
         }
     }
-
-    // Se não encontrou um e-mail "bom", retorna o primeiro da lista (se houver)
-    if (emails.length > 0) {
-        console.log(`[${new Date().toISOString()}] Retornando primeiro e-mail da lista: ${emails[0]}`);
-        return emails[0];
+    
+    // Se não encontrou um email de domínio específico, tenta encontrar qualquer email não genérico
+    for (const email of emails) {
+        if (!emailsGenericos.some(prefix => email.toLowerCase().startsWith(prefix))) {
+            console.log(`[${new Date().toISOString()}] E-mail não genérico encontrado: ${email}`);
+            return email;
+        }
     }
-
-    console.log(`[${new Date().toISOString()}] Nenhum e-mail válido encontrado`);
-    return null;
+    
+    // Se não encontrou um email melhor, retorna o primeiro da lista
+    console.log(`[${new Date().toISOString()}] Retornando primeiro e-mail disponível: ${emails[0]}`);
+    return emails[0];
 }
 
 /**
