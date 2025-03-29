@@ -152,8 +152,22 @@ async function transferCompaniesToSecondDB() {
         
         // Begin transaction for this single record
         await client.query('BEGIN');
+        
+        // Check if CNPJ already exists in the transfer table
+        const existsCheck = await client.query(
+          `SELECT EXISTS (SELECT 1 FROM transfer WHERE cnpj = $1) as exists`,
+          [company.cnpj]
+        );
+        
+        if (existsCheck.rows[0].exists) {
+          // CNPJ already exists, skip insertion
+          console.log(`[${new Date().toISOString()}] Skipping CNPJ ${company.cnpj} - already exists in database`);
+          await client.query('COMMIT');
+          continue;
+        }
+        
         //console.log(company)
-        // Insert into second database - no verification
+        // Insert into second database - after verification
         try {
           await client.query(
             `INSERT INTO transfer (cnpj, uf, at) 
