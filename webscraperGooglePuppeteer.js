@@ -525,7 +525,7 @@ async function initBrowser() {
         }
 
         return await puppeteer.launch({
-            headless: false,
+            headless: 'new',
             userDataDir: userDataDir,
             args: args,
             ignoreHTTPSErrors: true,
@@ -545,7 +545,7 @@ async function initBrowser() {
         };
         
         return await puppeteer.launch({
-            headless: false,
+            headless: 'new',
             userDataDir: userDataDir,
             args: [
                 '--no-sandbox',
@@ -691,7 +691,7 @@ async function rotateProxyAndRestartBrowser(browser) {
             }
             
             newBrowser = await puppeteer.launch({
-                headless: false,
+                headless: 'new',
                 userDataDir: userDataDir,
                 args: args,
                 ignoreHTTPSErrors: true,
@@ -778,7 +778,7 @@ async function rotateProxyAndRestartBrowser(browser) {
                     };
                     
                     newBrowser = await puppeteer.launch({
-                        headless: false,
+                        headless: 'new',
                         userDataDir: userDataDir,
                         args: [
                             '--no-sandbox',
@@ -807,7 +807,7 @@ async function rotateProxyAndRestartBrowser(browser) {
                     try {
                         newBrowser = await puppeteer.launch({
                             headless: 'new',
-                            args: ['--no-sandbox']
+                            args: ['--no-sandbox', '--disable-setuid-sandbox']
                         });
                         console.log(`[${new Date().toISOString()}] Navegador iniciado com configurações mínimas`);
                     } catch (finalError) {
