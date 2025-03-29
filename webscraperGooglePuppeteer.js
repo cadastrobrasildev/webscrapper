@@ -23,6 +23,9 @@ let proxyRequestCount = 0; // Add this variable declaration
 const MAX_REQUESTS_PER_PROXY = 10; // Reduzido para maior segurança
 const MIN_PROXIES_IN_POOL = 5;
 
+// Add a global flag to track if a CAPTCHA has been detected
+let captchaDetectedInSession = false;
+
 /**
  * Inicializa a pool de proxies usando proxy-chain e serviços premium gratuitos
  */
@@ -495,12 +498,25 @@ function getValidUserAgent() {
 
 async function initBrowser() {
     try {
-        // Seleciona um proxy se ainda não temos um
-        if (!currentProxy) {
-            currentProxy = await getRandomProxy();
+        // If CAPTCHA was detected in this session, use proxy rotation
+        if (captchaDetectedInSession) {
+            // Seleciona um proxy se ainda não temos um
+            if (!currentProxy) {
+                currentProxy = await getRandomProxy();
+            }
+            
+            console.log(`[${new Date().toISOString()}] Using proxy after CAPTCHA detection: ${currentProxy.protocol === 'direct' ? 'conexão direta' : `${currentProxy.ip}:${currentProxy.port} (${currentProxy.country || 'unknown'})`}`);
+        } else {
+            // No CAPTCHA detected yet, use direct connection
+            console.log(`[${new Date().toISOString()}] Starting with direct connection (no CAPTCHA detected yet)`);
+            currentProxy = {
+                ip: null,
+                port: null,
+                protocol: 'direct',
+                lastUsed: new Date(),
+                working: true
+            };
         }
-        
-        console.log(`[${new Date().toISOString()}] Usando proxy: ${currentProxy.protocol === 'direct' ? 'conexão direta' : `${currentProxy.ip}:${currentProxy.port} (${currentProxy.country || 'unknown'})`}`);
 
         const args = [
             '--no-sandbox',
@@ -519,9 +535,9 @@ async function initBrowser() {
         // Adiciona o user agent
         args.push(`--user-agent=${getValidUserAgent()}`);
         
-        // Adiciona o proxy apenas se não for conexão direta
-        if (currentProxy.protocol !== 'direct' && currentProxy.ip && currentProxy.port) {
-            args.push(`--proxy-server=${currentProxy.ip}:${currentProxy.port}`);
+        // Adiciona o proxy apenas se for usar proxy (após CAPTCHA) e não for conexão direta
+        if (captchaDetectedInSession && currentProxy.protocol !== 'direct' && currentProxy.ip && currentProxy.port) {
+            args.push(`--proxy-server=${currentProxy.protocol}://${currentProxy.ip}:${currentProxy.port}`);
         }
 
         return await puppeteer.launch({
@@ -960,6 +976,12 @@ async function searchGoogle(browser, query, counter) {
                 console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${counter + 1}`);
                 counter++;
 
+                // Set the flag to indicate CAPTCHA was detected in this session
+                if (!captchaDetectedInSession) {
+                    captchaDetectedInSession = true;
+                    console.log(`[${new Date().toISOString()}] First CAPTCHA detected! Switching to proxy mode for subsequent requests.`);
+                }
+
                 // Fecha a página atual
                 await page.close();
 
@@ -1236,13 +1258,16 @@ async function visitCompanySite(browser, site) {
                 error.message.includes(errorText)
             );
 
-            if (needsProxyRotation) {
-                console.log(`[${new Date().toISOString()}] Possível problema com proxy. Rotacionando...`);
-                browser = await rotateProxyAndRestartBrowser(browser);
-                
-                if (attempt < maxRetries) {
-                    console.log(`[${new Date().toISOString()}] Tentando novamente após rotação de proxy (tentativa ${attempt + 1}/${maxRetries})...`);
-                    continue;
+            // Only consider proxy rotation if we're in proxy mode
+            if (captchaDetectedInSession) {
+                if (needsProxyRotation) {
+                    console.log(`[${new Date().toISOString()}] Possível problema com proxy. Rotacionando...`);
+                    browser = await rotateProxyAndRestartBrowser(browser);
+                    
+                    if (attempt < maxRetries) {
+                        console.log(`[${new Date().toISOString()}] Tentando novamente após rotação de proxy (tentativa ${attempt + 1}/${maxRetries})...`);
+                        continue;
+                    }
                 }
             }
             
@@ -1264,7 +1289,18 @@ async function visitCompanySite(browser, site) {
     // Inicializa o pool de proxies primeiro
     await initializeProxyPool();
     
-    // Depois inicializa o navegador
+    // Reset the flag at the start of each session
+    captchaDetectedInSession = false;
+    
+    // Inicializa o navegador com conexão direta por padrão
+    console.log(`[${new Date().toISOString()}] Starting with direct connection. Will use proxies only after CAPTCHA detection.`);
+    currentProxy = {
+        ip: null,
+        port: null,
+        protocol: 'direct',
+        lastUsed: new Date(),
+        working: true
+    };
     browser = await initBrowser();
 
     async function startScraping() {
