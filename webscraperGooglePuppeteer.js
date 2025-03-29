@@ -806,7 +806,7 @@ async function rotateProxyAndRestartBrowser(browser) {
                     
                     try {
                         newBrowser = await puppeteer.launch({
-                            headless: false,
+                            headless: 'new',
                             args: ['--no-sandbox']
                         });
                         console.log(`[${new Date().toISOString()}] Navegador iniciado com configurações mínimas`);
