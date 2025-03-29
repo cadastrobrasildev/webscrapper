@@ -10,10 +10,261 @@ const sleep = ms => new Promise(res => setTimeout(res, ms));
 require('dotenv').config();
 puppeteer.use(StealthPlugin());
 const os = require('os');
-const { handleCaptchaIfPresent } = require('./captchaSolver');
+const proxyAgent = require('proxy-agent');
+const axios = require('axios');
+const ProxyChain = require('proxy-chain');
+
+// Sistema de gerenciamento de proxies com proxy-chain
+let proxyPool = [];
+let currentProxy = null;
+let proxyUrl = null;
+let proxyServer = null;
+let proxyRequestCount = 0; // Add this variable declaration
+const MAX_REQUESTS_PER_PROXY = 10; // Reduzido para maior segurança
+const MIN_PROXIES_IN_POOL = 5;
 
 // Add a global flag to track if a CAPTCHA has been detected
 let captchaDetectedInSession = false;
+
+/**
+ * Inicializa a pool de proxies usando proxy-chain e serviços premium gratuitos
+ */
+async function initializeProxyPool() {
+    console.log(`[${new Date().toISOString()}] Iniciando coleta de proxies...`);
+    proxyPool = [];
+    
+    try {
+        // 1. Primeiro tenta proxies premium gratuitos (ProxyScrape)
+        const response = await axios.get('https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=elite', {
+            timeout: 10000
+        });
+        
+        if (response.status === 200 && response.data) {
+            const lines = response.data.split('\n').filter(line => line.trim() && line.includes(':'));
+            
+            for (const line of lines) {
+                const [ip, port] = line.trim().split(':');
+                if (ip && port) {
+                    proxyPool.push({
+                        ip: ip.trim(),
+                        port: parseInt(port.trim(), 10),
+                        protocol: 'http',
+                        lastUsed: null,
+                        working: true
+                    });
+                }
+            }
+            
+            console.log(`[${new Date().toISOString()}] ProxyScrape: Encontrados ${proxyPool.length} proxies`);
+        }
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] Erro ao obter proxies premium:`, error.message);
+    }
+    
+    // 2. Se não encontrou proxies suficientes, adiciona os estáticos confiáveis
+    if (proxyPool.length < MIN_PROXIES_IN_POOL) {
+        await addStaticProxies();
+    }
+    
+    // 3. Se mesmo assim não tem proxies suficientes, usa o ProxyMesh (serviço gratuito com limite)
+    if (proxyPool.length < MIN_PROXIES_IN_POOL) {
+        try {
+            proxyPool.push({
+                ip: 'open.proxymesh.com',
+                port: 31280,
+                protocol: 'http',
+                lastUsed: null,
+                working: true
+            });
+            console.log(`[${new Date().toISOString()}] Adicionado proxy ProxyMesh`);
+        } catch (error) {
+            console.error(`[${new Date().toISOString()}] Erro ao adicionar ProxyMesh:`, error.message);
+        }
+    }
+    
+    // 4. Por fim, adiciona conexão direta como último recurso
+    proxyPool.push({
+        ip: null,
+        port: null,
+        country: 'local',
+        protocol: 'direct',
+        lastUsed: null,
+        working: true
+    });
+    
+    console.log(`[${new Date().toISOString()}] Pool de proxies inicializada com ${proxyPool.length} proxies`);
+    
+    // Inicia o proxy server local usando proxy-chain (se necessário)
+    await initializeProxyServer();
+}
+
+/**
+ * Adiciona proxies estáticos confiáveis à pool
+ */
+async function addStaticProxies() {
+    const staticProxies = [
+        { ip: '200.25.254.193', port: 54240, country: 'br', protocol: 'http' },
+        { ip: '177.93.38.74', port: 999, country: 'co', protocol: 'http' },
+        { ip: '47.74.152.29', port: 8888, country: 'us', protocol: 'http' },
+        { ip: '51.79.52.80', port: 3080, country: 'ca', protocol: 'http' },
+        { ip: '167.99.147.121', port: 3128, country: 'ca', protocol: 'http' },
+        { ip: '190.196.176.5', port: 60080, country: 'ar', protocol: 'http' },
+        { ip: '146.190.83.209', port: 3128, country: 'us', protocol: 'http' },
+        { ip: '45.232.79.1', port: 9292, country: 'br', protocol: 'http' },
+        { ip: '190.61.88.147', port: 8080, country: 'co', protocol: 'http' },
+        { ip: '190.90.8.74', port: 8080, country: 'co', protocol: 'http' },
+        { ip: '147.182.132.21', port: 3128, country: 'us', protocol: 'http' }
+    ];
+    
+    for (const proxy of staticProxies) {
+        proxy.lastUsed = null;
+        proxy.working = true;
+        proxyPool.push(proxy);
+    }
+    
+    console.log(`[${new Date().toISOString()}] Adicionados ${staticProxies.length} proxies estáticos`);
+}
+
+/**
+ * Inicializa o servidor de proxy local com proxy-chain
+ */
+async function initializeProxyServer() {
+    // Encerra servidor existente se houver
+    if (proxyServer) {
+        try {
+            await proxyServer.close();
+            console.log(`[${new Date().toISOString()}] Servidor de proxy existente fechado`);
+        } catch (error) {
+            console.error(`[${new Date().toISOString()}] Erro ao fechar servidor de proxy:`, error.message);
+        }
+    }
+    
+    try {
+        // Cria um novo servidor de proxy local
+        proxyServer = new ProxyChain.Server({
+            // Esta função é chamada quando há uma solicitação para o proxy
+            prepareRequestFunction: async ({ request, username, password, hostname, port, isHttp }) => {
+                // Pega um proxy aleatório da pool para rotacionar IPs
+                const randomProxy = await getRandomProxy();
+                
+                if (randomProxy.protocol === 'direct') {
+                    // Conecta diretamente sem proxy
+                    console.log(`[${new Date().toISOString()}] Usando conexão direta para ${hostname}:${port}`);
+                    return {
+                        requestAuthentication: false,
+                        upstreamProxyUrl: null,
+                    };
+                } else {
+                    // Usa o proxy selecionado
+                    const upstreamProxyUrl = `http://${randomProxy.ip}:${randomProxy.port}`;
+                    console.log(`[${new Date().toISOString()}] Usando proxy para ${hostname}:${port}: ${upstreamProxyUrl}`);
+                    return {
+                        requestAuthentication: false,
+                        upstreamProxyUrl,
+                    };
+                }
+            },
+        });
+        
+        // Inicia o servidor de proxy
+        await proxyServer.listen(0); // Porta aleatória
+        const port = proxyServer.port;
+        proxyUrl = `http://localhost:${port}`;
+        console.log(`[${new Date().toISOString()}] Servidor de proxy local iniciado em ${proxyUrl}`);
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] Erro ao iniciar servidor de proxy:`, error.message);
+        proxyServer = null;
+        proxyUrl = null;
+    }
+}
+
+/**
+ * Obtém um proxy aleatório da pool
+ */
+async function getRandomProxy() {
+    if (proxyPool.length === 0) {
+        await initializeProxyPool();
+    }
+    
+    // Tenta até 3 proxies aleatórios
+    for (let attempt = 0; attempt < 3; attempt++) {
+        // Primeiro tenta proxies não usados
+        const unusedProxies = proxyPool.filter(p => p.lastUsed === null && p.working);
+        
+        let proxy;
+        if (unusedProxies.length > 0) {
+            proxy = unusedProxies[Math.floor(Math.random() * unusedProxies.length)];
+        } else {
+            // Se todos já foram usados, pega qualquer um marcado como funcionando
+            const workingProxies = proxyPool.filter(p => p.working);
+            if (workingProxies.length > 0) {
+                proxy = workingProxies[Math.floor(Math.random() * workingProxies.length)];
+            } else {
+                // Se nenhum funciona, usa conexão direta
+                return {
+                    ip: null,
+                    port: null,
+                    protocol: 'direct',
+                    lastUsed: new Date(),
+                    working: true
+                };
+            }
+        }
+        
+        // Testa o proxy antes de retornar
+        try {
+            proxy.working = await testProxy(proxy);
+            
+            if (proxy.working) {
+                proxy.lastUsed = new Date();
+                console.log(`[${new Date().toISOString()}] Proxy selecionado: ${proxy.ip}:${proxy.port}`);
+                return proxy;
+            } else {
+                console.log(`[${new Date().toISOString()}] Proxy falhou no teste: ${proxy.ip}:${proxy.port}`);
+            }
+        } catch (error) {
+            console.error(`[${new Date().toISOString()}] Erro testando proxy ${proxy.ip}:${proxy.port}:`, error.message);
+            proxy.working = false;
+        }
+    }
+    
+    // Se todos falharem, usa conexão direta
+    console.log(`[${new Date().toISOString()}] Todos os proxies falharam, usando conexão direta`);
+    return {
+        ip: null,
+        port: null,
+        protocol: 'direct',
+        lastUsed: new Date(),
+        working: true
+    };
+}
+
+/**
+ * Testa se um proxy está funcionando
+ */
+async function testProxy(proxy) {
+    if (proxy.protocol === 'direct') return true;
+    
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const testResponse = await axios.get('https://api.ipify.org?format=json', {
+            proxy: {
+                host: proxy.ip,
+                port: proxy.port,
+                protocol: proxy.protocol
+            },
+            timeout: 5000,
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        return testResponse.status === 200;
+    } catch (error) {
+        return false;
+    }
+}
 
 const getLocalIP = () => {
     const interfaces = os.networkInterfaces();
@@ -46,8 +297,7 @@ const pool2 = new Pool({
     port: 5432,
     connectionTimeoutMillis: 180000
 });
-console.log("v6 - Sem uso de proxies")
-
+console.log("v5 - Com rotação de proxies")
 /**
  * Função para extrair informações de telefone de um texto
  * @param {string} texto - O texto contendo números de telefone
@@ -217,6 +467,13 @@ function isEmailProviderDomain(site) {
 
 const userDataDir = `./temp/profile_${Math.random().toString(36).substring(7)}`;
 
+/**
+ * Inicializa o navegador Puppeteer com configurações otimizadas
+ * @returns {Promise<Browser>} Instância do navegador
+ * 
+ * 
+ */
+
 function getValidUserAgent() {
     try {
         const ua = randomUseragent.getRandom(ua => {
@@ -237,14 +494,30 @@ function getValidUserAgent() {
     }
 }
 
-/**
- * Inicializa o navegador Puppeteer com configurações otimizadas
- * @returns {Promise<Browser>} Instância do navegador
- */
+// Modify the initBrowser function to better handle proxy issues
+
 async function initBrowser() {
     try {
-        console.log(`[${new Date().toISOString()}] Starting with direct connection`);
-        
+        // If CAPTCHA was detected in this session, use proxy rotation
+        if (captchaDetectedInSession) {
+            // Seleciona um proxy se ainda não temos um
+            if (!currentProxy) {
+                currentProxy = await getRandomProxy();
+            }
+            
+            console.log(`[${new Date().toISOString()}] Using proxy after CAPTCHA detection: ${currentProxy.protocol === 'direct' ? 'conexão direta' : `${currentProxy.ip}:${currentProxy.port} (${currentProxy.country || 'unknown'})`}`);
+        } else {
+            // No CAPTCHA detected yet, use direct connection
+            console.log(`[${new Date().toISOString()}] Starting with direct connection (no CAPTCHA detected yet)`);
+            currentProxy = {
+                ip: null,
+                port: null,
+                protocol: 'direct',
+                lastUsed: new Date(),
+                working: true
+            };
+        }
+
         const args = [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -255,9 +528,17 @@ async function initBrowser() {
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
-            '--no-zygote', 
-            `--user-agent=${getValidUserAgent()}`
-        ]; // Fixed the 'd' typo here
+            '--no-zygote',
+            '--window-size=1366,768' // Tamanho comum de janela
+        ];
+
+        // Adiciona o user agent
+        args.push(`--user-agent=${getValidUserAgent()}`);
+        
+        // Adiciona o proxy apenas se for usar proxy (após CAPTCHA) e não for conexão direta
+        if (captchaDetectedInSession && currentProxy.protocol !== 'direct' && currentProxy.ip && currentProxy.port) {
+            args.push(`--proxy-server=${currentProxy.protocol}://${currentProxy.ip}:${currentProxy.port}`);
+        }
 
         return await puppeteer.launch({
             headless: 'new',
@@ -269,13 +550,31 @@ async function initBrowser() {
     } catch (error) {
         console.error(`[${new Date().toISOString()}] Erro ao inicializar navegador:`, error.message);
         
-        // Tentativa mais simples se falhar
+        // Se falhar, tenta conexão direta
+        console.log(`[${new Date().toISOString()}] Tentando inicializar com conexão direta após falha`);
+        currentProxy = {
+            ip: null,
+            port: null,
+            protocol: 'direct',
+            lastUsed: new Date(),
+            working: true
+        };
+        
         return await puppeteer.launch({
             headless: 'new',
             userDataDir: userDataDir,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
+                '--disable-infobars',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--window-size=1366,768',
                 `--user-agent=${getValidUserAgent()}`
             ],
             ignoreHTTPSErrors: true,
@@ -285,38 +584,136 @@ async function initBrowser() {
 }
 
 /**
- * Reinicia o navegador quando necessário
+ * Rotaciona o proxy e reinicia o navegador
  * @param {Browser} browser - Instância atual do navegador
  * @returns {Promise<Browser>} Nova instância do navegador
  */
-async function restartBrowser(browser) {
+async function rotateProxyAndRestartBrowser(browser) {
     // Fecha o navegador atual se existir
     if (browser) {
         try {
             await browser.close();
-            console.log(`[${new Date().toISOString()}] Navegador fechado`);
+            console.log(`[${new Date().toISOString()}] Navegador fechado para rotação de proxy`);
         } catch (error) {
-            console.error(`[${new Date().toISOString()}] Erro ao fechar navegador:`, error.message);
+            console.error(`[${new Date().toISOString()}] Erro ao fechar navegador para rotação:`, error.message);
             // Continue mesmo se falhar ao fechar (pode já estar fechado)
         }
     }
     
     // Pequena pausa antes de reabrir o navegador
-    await sleep(2000);
+    await sleep(2000); // Aumentado para 2 segundos para garantir que o navegador anterior seja fechado corretamente
     
+    // Array para armazenar tentativas de proxy
+    const proxyAttempts = [];
     let newBrowser = null;
     let attemptCount = 0;
     const maxAttempts = 3;
     
-    // Tenta inicializar o navegador algumas vezes
+    // Tenta até conseguir um proxy que funcione ou esgotar o número máximo de tentativas
     while (attemptCount < maxAttempts && !newBrowser) {
         attemptCount++;
         
         try {
-            console.log(`[${new Date().toISOString()}] Tentativa ${attemptCount} de ${maxAttempts} para iniciar navegador`);
+            console.log(`[${new Date().toISOString()}] Tentativa ${attemptCount} de ${maxAttempts} para encontrar proxy funcionando`);
             
-            // Inicializa um novo navegador com configurações padrão
-            newBrowser = await initBrowser();
+            // Seleciona um novo proxy que ainda não foi tentado nesta sessão de rotação
+            try {
+                let foundNewProxy = false;
+                for (let i = 0; i < 3; i++) { // Tenta até 3 vezes encontrar um proxy não utilizado recentemente
+                    const candidateProxy = await getRandomProxy();
+                    
+                    // Verifica se este proxy já foi tentado nesta sessão
+                    const alreadyTried = proxyAttempts.some(p => 
+                        p.ip === candidateProxy.ip && p.port === candidateProxy.port
+                    );
+                    
+                    if (!alreadyTried) {
+                        currentProxy = candidateProxy;
+                        foundNewProxy = true;
+                        break;
+                    }
+                }
+                
+                // Se não conseguiu um novo proxy, usa conexão direta
+                if (!foundNewProxy) {
+                    console.log(`[${new Date().toISOString()}] Não foi possível encontrar um novo proxy. Usando conexão direta.`);
+                    currentProxy = {
+                        ip: null,
+                        port: null,
+                        protocol: 'direct',
+                        lastUsed: new Date(),
+                        working: true
+                    };
+                }
+                
+                proxyRequestCount = 0; // Reinicia contador de requisições
+                
+                // Registra o proxy tentado
+                if (currentProxy.protocol !== 'direct') {
+                    proxyAttempts.push({
+                        ip: currentProxy.ip,
+                        port: currentProxy.port,
+                        protocol: currentProxy.protocol
+                    });
+                    
+                    console.log(`[${new Date().toISOString()}] Rotacionando para novo proxy: ${currentProxy.ip}:${currentProxy.port} (${currentProxy.country || 'unknown'})`);
+                } else {
+                    console.log(`[${new Date().toISOString()}] Usando conexão direta (sem proxy)`);
+                }
+            } catch (error) {
+                console.error(`[${new Date().toISOString()}] Erro ao selecionar novo proxy:`, error.message);
+                // Em caso de erro, usa conexão direta
+                currentProxy = {
+                    ip: null,
+                    port: null,
+                    protocol: 'direct',
+                    lastUsed: new Date(),
+                    working: true
+                };
+                console.log(`[${new Date().toISOString()}] Usando conexão direta devido a erro na seleção de proxy`);
+            }
+            
+            // Testa o proxy antes de inicializar o navegador (apenas para proxies não diretos)
+            if (currentProxy.protocol !== 'direct') {
+                const proxyWorks = await testProxy(currentProxy);
+                if (!proxyWorks) {
+                    console.log(`[${new Date().toISOString()}] Proxy falhou no teste prévio. Tentando outro...`);
+                    continue; // Tenta o próximo proxy
+                }
+                console.log(`[${new Date().toISOString()}] Proxy passou no teste prévio.`);
+            }
+            
+            // Inicializa um novo navegador com o novo proxy
+            console.log(`[${new Date().toISOString()}] Iniciando novo navegador após rotação de proxy...`);
+            
+            const args = [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-infobars',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--window-size=1366,768',
+                `--user-agent=${getValidUserAgent()}`
+            ];
+            
+            // Adiciona o proxy apenas se não for conexão direta
+            if (currentProxy.protocol !== 'direct' && currentProxy.ip && currentProxy.port) {
+                args.push(`--proxy-server=${currentProxy.protocol}://${currentProxy.ip}:${currentProxy.port}`);
+            }
+            
+            newBrowser = await puppeteer.launch({
+                headless: 'new',
+                userDataDir: userDataDir,
+                args: args,
+                ignoreHTTPSErrors: true,
+                defaultViewport: null,
+                timeout: 30000 // Aumentar timeout para 30 segundos
+            });
             
             // Teste simplificado: abre uma página about:blank para verificar se o navegador está funcionando
             try {
@@ -327,7 +724,7 @@ async function restartBrowser(browser) {
                 console.log(`[${new Date().toISOString()}] Teste básico do navegador bem-sucedido.`);
             } catch (testError) {
                 console.error(`[${new Date().toISOString()}] Erro no teste do navegador:`, testError.message);
-                // Se o teste falhar, fecha o navegador e tenta novamente
+                // Se o teste falhar, fecha o navegador e tenta outro proxy
                 if (newBrowser) {
                     await newBrowser.close().catch(() => {});
                 }
@@ -335,24 +732,104 @@ async function restartBrowser(browser) {
                 throw new Error(`Falha no teste do navegador: ${testError.message}`);
             }
             
-            console.log(`[${new Date().toISOString()}] Novo navegador inicializado com sucesso`);
+            // Teste mais completo: tenta acessar uma página externa simples
+            try {
+                console.log(`[${new Date().toISOString()}] Testando navegador com site externo...`);
+                const testPage = await newBrowser.newPage();
+                // Usamos uma página simples e confiável para teste
+                await testPage.goto('https://www.example.com', { 
+                    timeout: 15000,
+                    waitUntil: 'domcontentloaded' 
+                });
+                
+                const pageContent = await testPage.content();
+                const isWorking = pageContent.includes('Example Domain');
+                
+                await testPage.close();
+                
+                if (isWorking) {
+                    console.log(`[${new Date().toISOString()}] Teste completo do navegador bem-sucedido.`);
+                } else {
+                    console.error(`[${new Date().toISOString()}] O navegador abriu, mas não conseguiu carregar o conteúdo da página de teste.`);
+                    throw new Error('Falha ao carregar conteúdo no teste');
+                }
+            } catch (testError) {
+                console.error(`[${new Date().toISOString()}] Erro no teste completo:`, testError.message);
+                // Se o teste falhar, fecha o navegador e tenta outro proxy
+                if (newBrowser) {
+                    await newBrowser.close().catch(() => {});
+                }
+                newBrowser = null;
+                throw new Error(`Falha no teste completo: ${testError.message}`);
+            }
+            
+            console.log(`[${new Date().toISOString()}] Novo navegador inicializado com sucesso após rotação de proxy`);
             
         } catch (error) {
             console.error(`[${new Date().toISOString()}] Tentativa ${attemptCount} falhou:`, error.message);
             
-            // Se for a última tentativa, vamos tentar uma configuração mínima
+            // Marca o proxy atual como não funcionando para não ser selecionado novamente
+            if (currentProxy && currentProxy.protocol !== 'direct') {
+                const proxyIndex = proxyPool.findIndex(p => 
+                    p.ip === currentProxy.ip && p.port === currentProxy.port
+                );
+                
+                if (proxyIndex !== -1) {
+                    console.log(`[${new Date().toISOString()}] Marcando proxy ${currentProxy.ip}:${currentProxy.port} como não funcionando`);
+                    proxyPool[proxyIndex].working = false;
+                }
+            }
+            
+            // Se for a última tentativa, vamos tentar conexão direta como último recurso
             if (attemptCount >= maxAttempts) {
-                console.log(`[${new Date().toISOString()}] Todas as tentativas falharam. Tentando configuração mínima.`);
+                console.log(`[${new Date().toISOString()}] Todas as tentativas de proxy falharam. Tentando conexão direta como último recurso.`);
                 
                 try {
+                    currentProxy = {
+                        ip: null,
+                        port: null,
+                        protocol: 'direct',
+                        lastUsed: new Date(),
+                        working: true
+                    };
+                    
                     newBrowser = await puppeteer.launch({
                         headless: 'new',
-                        args: ['--no-sandbox', '--disable-setuid-sandbox']
+                        userDataDir: userDataDir,
+                        args: [
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--disable-infobars',
+                            '--disable-features=IsolateOrigins,site-per-process',
+                            '--disable-blink-features=AutomationControlled',
+                            `--user-agent=${getValidUserAgent()}`
+                        ],
+                        ignoreHTTPSErrors: true,
+                        defaultViewport: null
                     });
-                    console.log(`[${new Date().toISOString()}] Navegador iniciado com configurações mínimas`);
-                } catch (finalError) {
-                    console.error(`[${new Date().toISOString()}] Falha fatal na inicialização do browser:`, finalError.message);
-                    throw new Error('Impossível inicializar o navegador após múltiplas tentativas');
+                    
+                    // Teste rápido
+                    const testPage = await newBrowser.newPage();
+                    await testPage.goto('about:blank');
+                    await testPage.close();
+                    
+                    console.log(`[${new Date().toISOString()}] Conexão direta estabelecida com sucesso como fallback`);
+                } catch (fallbackError) {
+                    console.error(`[${new Date().toISOString()}] Erro fatal ao tentar conexão direta:`, fallbackError.message);
+                    
+                    // Última tentativa com configurações mínimas
+                    console.log(`[${new Date().toISOString()}] Tentativa de último recurso com configurações mínimas`);
+                    
+                    try {
+                        newBrowser = await puppeteer.launch({
+                            headless: 'new',
+                            args: ['--no-sandbox', '--disable-setuid-sandbox']
+                        });
+                        console.log(`[${new Date().toISOString()}] Navegador iniciado com configurações mínimas`);
+                    } catch (finalError) {
+                        console.error(`[${new Date().toISOString()}] Falha fatal na inicialização do browser:`, finalError.message);
+                        throw new Error('Impossível inicializar o navegador após múltiplas tentativas');
+                    }
                 }
             }
         }
@@ -396,6 +873,7 @@ async function isBrowserHealthy(browser) {
  */
 async function searchGoogle(browser, query, counter) {
     let page;
+    let browserWasRestarted = false;
     let maxRetries = 3; // Número máximo de tentativas
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -417,8 +895,9 @@ async function searchGoogle(browser, query, counter) {
                 // Pausa breve para garantir que quaisquer recursos sejam liberados
                 await sleep(3000);
                 
-                // Reinicializa o browser
-                browser = await restartBrowser(null);
+                // Reinicializa o browser completo com nova rotação de proxy
+                browser = await rotateProxyAndRestartBrowser(null);
+                browserWasRestarted = true;
                 
                 // Verificação extra para garantir que o novo browser está funcionando
                 if (!(await isBrowserHealthy(browser))) {
@@ -431,6 +910,19 @@ async function searchGoogle(browser, query, counter) {
             page = await browser.newPage();
             await page.deleteCookie(...(await page.cookies()));
             await page.setBypassCSP(true); // Permite acesso a recursos restritos
+
+            // Incrementa contador de requisições para o proxy atual
+            proxyRequestCount++;
+
+            // Verifica se precisamos rotacionar o proxy baseado no número de requisições
+            if (proxyRequestCount >= MAX_REQUESTS_PER_PROXY) {
+                console.log(`[${new Date().toISOString()}] Atingido limite de ${MAX_REQUESTS_PER_PROXY} requisições para o proxy atual. Rotacionando...`);
+                await page.close();
+                browser = await rotateProxyAndRestartBrowser(browser);
+                page = await browser.newPage();
+                await page.deleteCookie(...(await page.cookies()));
+                await page.setBypassCSP(true);
+            }
 
             // Substitua a limpeza do localStorage por:
             await page.evaluateOnNewDocument(() => {
@@ -484,37 +976,25 @@ async function searchGoogle(browser, query, counter) {
                 console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Total CAPTCHAs: ${counter + 1}`);
                 counter++;
 
-                // Registra que um CAPTCHA foi detectado nesta sessão
-                captchaDetectedInSession = true;
-
-                // Handle CAPTCHA using the external solver
-                const captchaSolved = await handleCaptchaIfPresent(page);
+                // Fecha a página atual
+                await page.close();
                 
-                if (captchaSolved) {
-                    console.log(`[${new Date().toISOString()}] CAPTCHA solved successfully! Continuing with search...`);
-                    
-                    // Adiciona um pequeno atraso para que a página se atualize após resolver o CAPTCHA
-                    await sleep(3000);
-                    
-                    // Continue with the normal flow - get the HTML and return it
-                    const html = await page.content();
-                    await page.close();
-                    return { captchaDetected: false, html, counter, browser };
-                } else {
-                    console.log(`[${new Date().toISOString()}] CAPTCHA solving failed. Skipping this record.`);
-                    
-                    // Fecha a página atual somente se a solução do CAPTCHA falhou
-                    await page.close();
-                    
-                    // Retorna informando que encontrou CAPTCHA e não conseguiu resolver
-                    return { 
-                        captchaDetected: true, 
-                        html: null, 
-                        counter, 
-                        browser,
-                        restartProcess: false 
-                    };
+                // Verifica se atingiu o limite de 15 CAPTCHAs para ativar o modo proxy
+                if (counter >= 15 && !captchaDetectedInSession) {
+                    captchaDetectedInSession = true;
+                    console.log(`[${new Date().toISOString()}] Atingido limite de 15 CAPTCHAs! Ativando modo de rotação de proxies.`);
+                    browser = await rotateProxyAndRestartBrowser(browser);
                 }
+                
+                // Retorna informando que encontrou CAPTCHA, mas não faz reinicialização completa
+                return { 
+                    captchaDetected: true, 
+                    html: null, 
+                    counter, 
+                    browser,
+                    // Não reinicia o processo inteiro, apenas pula o registro atual
+                    restartProcess: false 
+                };
             }
 
             // Obtém o HTML da página
@@ -533,7 +1013,7 @@ async function searchGoogle(browser, query, counter) {
                 try {
                     await page.close();
                 } catch (closeError) {
-                    console.error(`[${new Date().toISOString()}] Error closing page: ${closeError.message}`);
+                    console.error(`[${new Date().toISOString()}] Error closing page:`, closeError.message);
                 }
             }
 
@@ -562,19 +1042,47 @@ async function searchGoogle(browser, query, counter) {
                     try {
                         await browser.close();
                     } catch (closeError) {
-                        console.error(`[${new Date().toISOString()}] Erro ao fechar browser após erro crítico: ${closeError.message}`);
+                        console.error(`[${new Date().toISOString()}] Erro ao fechar browser após erro crítico:`, closeError.message);
                     }
                 }
                 
                 // Pausa longa para garantir que o sistema se recupere
                 await sleep(5000);
                 
-                // Reinicializa o browser
-                browser = await restartBrowser(null);
+                // Reinicializa o browser com novo proxy
+                browser = await rotateProxyAndRestartBrowser(null);
                 
                 // Se não é a última tentativa, continua para a próxima
                 if (attempt < maxRetries) {
                     console.log(`[${new Date().toISOString()}] Tentando novamente após reinicialização (tentativa ${attempt + 1}/${maxRetries})...`);
+                    continue;
+                }
+            }
+            
+            // Verifica se o erro pode estar relacionado ao proxy
+            const proxyRelatedErrors = [
+                'net::',
+                'ERR_PROXY_CONNECTION_FAILED',
+                'ERR_TUNNEL_CONNECTION_FAILED',
+                'ERR_CONNECTION_RESET',
+                'ERR_CONNECTION_CLOSED',
+                'ERR_CONNECTION_TIMED_OUT',
+                'ERR_CONNECTION_REFUSED',
+                'ERR_NETWORK_CHANGED',
+                'timeout'
+            ];
+
+            const needsProxyRotation = proxyRelatedErrors.some(errorText => 
+                error.message.includes(errorText)
+            );
+
+            if (needsProxyRotation) {
+                console.log(`[${new Date().toISOString()}] Possível problema com proxy. Rotacionando...`);
+                browser = await rotateProxyAndRestartBrowser(browser);
+                
+                // Se não é a última tentativa, continua para a próxima
+                if (attempt < maxRetries) {
+                    console.log(`[${new Date().toISOString()}] Tentando novamente após rotação de proxy (tentativa ${attempt + 1}/${maxRetries})...`);
                     continue;
                 }
             }
@@ -611,12 +1119,12 @@ async function visitCompanySite(browser, site) {
                     try {
                         await browser.close();
                     } catch (closeError) {
-                        console.error(`[${new Date().toISOString()}] Erro ao fechar browser existente: ${closeError.message}`);
+                        console.error(`[${new Date().toISOString()}] Erro ao fechar browser existente:`, closeError.message);
                     }
                 }
                 
                 await sleep(3000);
-                browser = await restartBrowser(null);
+                browser = await rotateProxyAndRestartBrowser(null);
                 
                 // Verificação extra para garantir que o novo browser está funcionando
                 if (!(await isBrowserHealthy(browser))) {
@@ -627,6 +1135,19 @@ async function visitCompanySite(browser, site) {
             page = await browser.newPage();
             await page.deleteCookie(...(await page.cookies()));
             await page.setBypassCSP(true);
+
+            // Incrementa contador de requisições para o proxy atual
+            proxyRequestCount++;
+
+            // Verifica se precisamos rotacionar o proxy
+            if (proxyRequestCount >= MAX_REQUESTS_PER_PROXY) {
+                console.log(`[${new Date().toISOString()}] Atingido limite de ${MAX_REQUESTS_PER_PROXY} requisições para o proxy. Rotacionando...`);
+                await page.close();
+                browser = await rotateProxyAndRestartBrowser(browser);
+                page = await browser.newPage();
+                await page.deleteCookie(...(await page.cookies()));
+                await page.setBypassCSP(true);
+            }
 
             await page.setUserAgent(getValidUserAgent());
 
@@ -671,7 +1192,7 @@ async function visitCompanySite(browser, site) {
                 try {
                     await page.close();
                 } catch (closeError) {
-                    console.error(`[${new Date().toISOString()}] Error closing page: ${closeError.message}`);
+                    console.error(`[${new Date().toISOString()}] Error closing page:`, closeError.message);
                 }
             }
 
@@ -700,17 +1221,47 @@ async function visitCompanySite(browser, site) {
                     try {
                         await browser.close();
                     } catch (closeError) {
-                        console.error(`[${new Date().toISOString()}] Erro ao fechar browser após erro crítico: ${closeError.message}`);
+                        console.error(`[${new Date().toISOString()}] Erro ao fechar browser após erro crítico:`, closeError.message);
                     }
                 }
                 
                 await sleep(5000);
-                browser = await restartBrowser(null);
+                browser = await rotateProxyAndRestartBrowser(null);
                 
                 // Se não é a última tentativa, continua para a próxima
                 if (attempt < maxRetries) {
                     console.log(`[${new Date().toISOString()}] Tentando novamente após reinicialização (tentativa ${attempt + 1}/${maxRetries})...`);
                     continue;
+                }
+            }
+            
+            // Verifica se o erro pode estar relacionado ao proxy
+            const proxyRelatedErrors = [
+                'net::',
+                'ERR_PROXY_CONNECTION_FAILED',
+                'ERR_TUNNEL_CONNECTION_FAILED',
+                'ERR_CONNECTION_RESET',
+                'ERR_CONNECTION_CLOSED',
+                'ERR_CONNECTION_TIMED_OUT',
+                'ERR_CONNECTION_REFUSED',
+                'ERR_NETWORK_CHANGED',
+                'timeout'
+            ];
+
+            const needsProxyRotation = proxyRelatedErrors.some(errorText => 
+                error.message.includes(errorText)
+            );
+
+            // Only consider proxy rotation if we're in proxy mode
+            if (captchaDetectedInSession) {
+                if (needsProxyRotation) {
+                    console.log(`[${new Date().toISOString()}] Possível problema com proxy. Rotacionando...`);
+                    browser = await rotateProxyAndRestartBrowser(browser);
+                    
+                    if (attempt < maxRetries) {
+                        console.log(`[${new Date().toISOString()}] Tentando novamente após rotação de proxy (tentativa ${attempt + 1}/${maxRetries})...`);
+                        continue;
+                    }
                 }
             }
             
@@ -724,16 +1275,26 @@ async function visitCompanySite(browser, site) {
     throw { error: `Falha após ${maxRetries} tentativas sem erro específico`, browser };
 }
 
-// Na função principal (IIFE)
+// Na função principal (IIFE), modifique:
 (async () => {
     let captchaCounter = 0;
     let browser = null;
+
+    // Inicializa o pool de proxies primeiro
+    await initializeProxyPool();
     
     // Reset the flag at the start of each session
     captchaDetectedInSession = false;
     
-    // Inicializa o navegador
-    console.log(`[${new Date().toISOString()}] Starting with direct connection.`);
+    // Inicializa o navegador com conexão direta por padrão
+    console.log(`[${new Date().toISOString()}] Starting with direct connection. Will use proxies only after 15 CAPTCHA detections.`);
+    currentProxy = {
+        ip: null,
+        port: null,
+        protocol: 'direct',
+        lastUsed: new Date(),
+        working: true
+    };
     browser = await initBrowser();
 
     async function startScraping() {
@@ -903,65 +1464,6 @@ async function visitCompanySite(browser, site) {
                                 if (contato.tel1 && contato.tel1_dd && contato.email) {
                                     console.log(`[${new Date().toISOString()}] Found all needed contact info from company website. Skipping Google search.`);
                                     needGoogleSearch = false;
-                                    
-                                    // ADICIONADO: Atualiza o banco com as informações encontradas no site da empresa
-                                    try {
-                                        console.log(`[${new Date().toISOString()}] Updating database with information from company website:`, contato);
-                                        
-                                        // Cria o array de campos e valores para atualização
-                                        const fieldsToUpdate = [];
-                                        const valuesToUpdate = [];
-                                        let paramIndex = 1;
-                                        
-                                        // Adiciona campos somente se tiverem valores
-                                        if (contato.tel1_dd) {
-                                            fieldsToUpdate.push(`tel1_dd = $${paramIndex}`);
-                                            valuesToUpdate.push(contato.tel1_dd);
-                                            paramIndex++;
-                                        }
-                                        
-                                        if (contato.tel1) {
-                                            fieldsToUpdate.push(`tel1 = $${paramIndex}`);
-                                            valuesToUpdate.push(contato.tel1);
-                                            paramIndex++;
-                                        }
-                                        
-                                        if (contato.email && (!bd1.email || bd1.email === '')) {
-                                            fieldsToUpdate.push(`email = $${paramIndex}`);
-                                            valuesToUpdate.push(contato.email);
-                                            paramIndex++;
-                                        }
-                                        
-                                        if (contato.site) {
-                                            fieldsToUpdate.push(`site = $${paramIndex}`);
-                                            valuesToUpdate.push(contato.site);
-                                            paramIndex++;
-                                        }
-                                        
-                                        // Sempre adiciona update_google = 1 e at = 2
-                                        fieldsToUpdate.push(`update_google = 1`);
-                                        fieldsToUpdate.push(`at = 2`);
-                                        
-                                        // Adiciona o ID como último parâmetro
-                                        valuesToUpdate.push(bd1.id);
-                                        
-                                        // Atualiza o banco de dados somente se houver campos para atualizar
-                                        if (fieldsToUpdate.length > 0) {
-                                            const updateQuery = `
-                                            UPDATE transfer
-                                            SET ${fieldsToUpdate.join(', ')}
-                                            WHERE id = $${paramIndex}
-                                            `;
-                                            
-                                            await pool1.query(updateQuery, valuesToUpdate);
-                                            console.log(`[${new Date().toISOString()}] Updated record ID: ${bd1.id} with company website data`);
-                                            
-                                            recordsProcessed++;
-                                            console.log(`[${new Date().toISOString()}] Records processed: ${recordsProcessed}`);
-                                        }
-                                    } catch (dbError) {
-                                        console.error(`[${new Date().toISOString()}] Error updating record ID ${bd1.id} with company website data:`, dbError.message);
-                                    }
                                 } else {
                                     console.log(`[${new Date().toISOString()}] Missing some contact info after scraping website. Will try Google search as well.`);
                                 }

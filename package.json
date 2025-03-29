@@ -1,9 +1,10 @@
 {
-  "name": "cadastrobr-atualizacoes",
+  "name": "webscrapper",
   "version": "1.0.0",
-  "main": "app.js",
+  "description": "Web scraper for Google searches with CAPTCHA handling",
+  "main": "webscraperGooglePuppeteer.js",
   "scripts": {
-    "start": "node transfer.js",
+    "start": "node webscraperGooglePuppeteer.js",
     "transfer": "node transfer.js",
     "transfer2": "node transfer2.js",
     "scrap_site": "node webScraper.js",
@@ -12,18 +13,16 @@
   },
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
-    "axios": "^1.8.4",
-    "cheerio": "^1.0.0",
-    "dotenv": "^16.4.7",
-    "pg": "^8.14.1",
-    "proxy-chain": "^2.5.8",
-    "proxy-lists": "^1.23.3",
-    "puppeteer": "^22.8.2",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "puppeteer-page-proxy": "^1.3.0",
-    "random-useragent": "^0.5.0"
+    "puppeteer": "^20.7.4",
+    "cheerio": "^1.0.0-rc.12",
+    "random-useragent": "^0.5.0",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1",
+    "proxy-agent": "^6.3.0",
+    "axios": "^1.4.0",
+    "proxy-chain": "^2.3.0"
   }
 }
