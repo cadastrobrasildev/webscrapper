@@ -7,6 +7,7 @@ require('dotenv').config();
  */
 async function getManufacturingCompaniesInSC() {
   console.log(`[${new Date().toISOString()}] Attempting to connect to source database at 93.127.135.79...`);
+  console.log("v1.0.1")
   // Create a connection pool
   const pool = new Pool({
     host: '93.127.135.79',
@@ -26,38 +27,30 @@ async function getManufacturingCompaniesInSC() {
     console.log(`[${new Date().toISOString()}] Executing manufacturing companies query...`);
     // Execute query
     const result = await pool.query(`
-      SELECT 
-        c.cnpj, c.email, c.tel1_dd, c.tel1 
-      FROM 
-        rf_company c
-        LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
-        LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root
-        LEFT JOIN rf_company_tax_regime ctr ON c.cnpj_root = ctr.cnpj_root  
-      WHERE 
-        c.address_fu = '${process.env.TRANSFER_UF}' 
-        AND c.situation_code = '02'
-        AND CAST(LEFT(c.cnae_main, 2) AS INTEGER) BETWEEN 10 AND 33
-        AND c.email NOT LIKE '%gmail%'
-        AND c.email NOT LIKE '%yahoo%'
-        AND c.email NOT LIKE '%hotmail%'
-        AND c.email NOT LIKE '%outlook%'
-        AND c.email NOT LIKE '%contab%'
-        AND c.email NOT LIKE '%contabilidade%'
-        AND c.email NOT LIKE '%contador%'
-        AND c.email NOT LIKE '%icloud%'
-        AND c.email NOT LIKE '%uol%'
-        AND c.email NOT LIKE '%terra%'
-        AND c.email NOT LIKE '%brturbo%'
-        AND c.email NOT LIKE '%aol%'
-        AND c.email NOT LIKE '%msn%'
-        AND c.email NOT LIKE '%live%'
-        AND c.email NOT LIKE '%protonmail%'
-        AND c.email NOT LIKE '%zoho%'
-        AND c.email NOT LIKE '%mail.com%'
-        AND c.email NOT LIKE '%gmx%'
-        AND c.email NOT LIKE '%yandex%'
-        AND c.email NOT LIKE '%bol%'
+     SELECT 
+   c.*
+FROM 
+    rf_company c
+    LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
+    LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root
+    LEFT JOIN rf_company_tax_regime ctr ON c.cnpj_root = ctr.cnpj_root  
+WHERE c.cnae_main IN (
+    '1529700','1741902','1749400','2211100','2219600','2399199','2522500','2539001','2543800','2593400',
+    '2621300','2622100','2651500','2670102','2710401','2751100','2759701','2759799','2790201','2790299',
+    '2811900','2815102','2821601','2822401','2822402','2823200','2825900','2829101','2829199','2833300',
+    '2840200','2851800','2852600','2854200','2861500','2862300','2863100','2864000','2865800','2866600',
+    '2869100','3101200','3103900','3291400','3299002','3299099','3312102','3313999','3314701','3314707',
+    '3314708','3314709','3314710','3314711','3314713','3314714','3314715','3314717','3314718','3314719',
+    '3314720','3314721','3314722','3314799','3321000','2019399','2029100','2422901','2449199','2599399',
+    '2443100','2452100','2051700','2441501','2441502','2512800','2532201','2542000','2591800','2592601',
+    '2592602','2733300','2229301','2229302','2229303','2229399','2541100','2640000','2740602','2930103',
+    '3104700','3230200','3292201','3292202','1733800','3240099'
+)
+AND c.address_fu = '${process.env.TRANSFER_UF}' 
+  AND c.situation_code = '02'
+  AND c.trade_name is not NULL 
     `);
+    
     
     console.log(`[${new Date().toISOString()}] Query executed successfully. Retrieved ${result.rows.length} companies`);
     if (result.rows.length > 0) {
@@ -121,27 +114,27 @@ async function transferCompaniesToSecondDB() {
     console.log(`[${new Date().toISOString()}] Successfully connected to target database`);
     
     // Check if the industrias table exists
-    console.log(`[${new Date().toISOString()}] Checking if 'industrias' table exists...`);
+    console.log(`[${new Date().toISOString()}] Checking if 'transfer' table exists...`);
     const tableCheck = await secondDBPool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
         WHERE table_schema = 'public' 
-        AND table_name = 'industrias'
+        AND table_name = 'transfer'
       ) as exists
     `);
     
     if (!tableCheck.rows[0].exists) {
-      console.error(`[${new Date().toISOString()}] ERROR: 'industrias' table does not exist in target database`);
+      console.error(`[${new Date().toISOString()}] ERROR: 'transfer' table does not exist in target database`);
       return 0;
     }
     
     // Check table structure
-    console.log(`[${new Date().toISOString()}] Checking 'industrias' table structure...`);
+    console.log(`[${new Date().toISOString()}] Checking 'transfer' table structure...`);
     const tableStructure = await secondDBPool.query(`
       SELECT column_name, data_type 
       FROM information_schema.columns 
       WHERE table_schema = 'public' 
-      AND table_name = 'industrias'
+      AND table_name = 'transfer'
     `);
     
     console.log(`[${new Date().toISOString()}] Table structure:`, tableStructure.rows);
@@ -153,27 +146,19 @@ async function transferCompaniesToSecondDB() {
       // Get a client for each company (each in its own transaction)
       const client = await secondDBPool.connect();
       
-      try {
-        // Skip companies without email
-        if (!company.email) {
-          console.log(`[${new Date().toISOString()}] Skipping company with no email: CNPJ=${company.cnpj}`);
-          continue;
-        }
-        
-        // Extract site from email (domain part after @)
-        const site = company.email.split('@')[1];
-        
-        console.log(`[${new Date().toISOString()}] Processing company: CNPJ=${company.cnpj}, Email=${company.email}, Site=${site}`);
+      try {            
+       
+        console.log(`[${new Date().toISOString()}] Processing company: CNPJ=${company.cnpj}, Email=${company.email}`);
         
         // Begin transaction for this single record
         await client.query('BEGIN');
-        
+        //console.log(company)
         // Insert into second database - no verification
         try {
           await client.query(
-            `INSERT INTO industrias (cnpj, site, uf) 
-             VALUES ($1, $2, '${process.env.TRANSFER_UF}')`,
-            [company.cnpj, site]
+            `INSERT INTO transfer (cnpj, uf, at) 
+             VALUES ($1, '${process.env.TRANSFER_UF}', '1')`,
+            [company.cnpj]
           );
           
           // Commit transaction immediately after insert
@@ -217,10 +202,7 @@ async function transferCompaniesToSecondDB() {
       }
     }
     
-    // Double-check total record count
-    const countResult = await secondDBPool.query(`SELECT COUNT(*) FROM industrias`);
-    console.log(`[${new Date().toISOString()}] Total records in industrias table: ${countResult.rows[0].count}`);
-    
+    // Double-check total record count    
     console.log(`[${new Date().toISOString()}] Successfully transferred ${insertedCount} records to second database`);
     return insertedCount;
     
