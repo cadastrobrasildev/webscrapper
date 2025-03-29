@@ -252,8 +252,7 @@ function isEmailProviderDomain(site) {
                 }
 
                 const bd1 = result1.rows[0];
-                console.log(`[${new Date().toISOString()}] Processing CNPJ: ${bd1.cnpj}`);
-                
+                console.log(`[${new Date().toISOString()}] Processing CNPJ: ${bd1.cnpj}`);            
                 // Inicializa contato com valores do banco, se existirem
                 if (bd1.site) contato.site = bd1.site;
                 if (bd1.email) contato.email = bd1.email;
@@ -297,7 +296,7 @@ function isEmailProviderDomain(site) {
                             const siteResponse = await axiosInstance.get("https://"+bd1.site);
                             const siteHtml = siteResponse.data;
                             const $site = cheerio.load(siteHtml);
-                            
+                            await sleep(3000)
                             // Extrai todo o texto do site
                             const siteText = $site('body').text();
                             
