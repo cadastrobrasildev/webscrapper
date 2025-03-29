@@ -973,34 +973,28 @@ async function searchGoogle(browser, query, counter) {
                 pageContent.includes('Esta página verifica');
 
             if (isCaptchaPresent) {
-                console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${counter + 1}`);
+                console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Total CAPTCHAs: ${counter + 1}`);
                 counter++;
-
-                // Set the flag to indicate CAPTCHA was detected in this session
-                if (!captchaDetectedInSession) {
-                    captchaDetectedInSession = true;
-                    console.log(`[${new Date().toISOString()}] First CAPTCHA detected! Switching to proxy mode for subsequent requests.`);
-                }
 
                 // Fecha a página atual
                 await page.close();
-
-                // Rotaciona proxy após detecção de CAPTCHA
-                console.log(`[${new Date().toISOString()}] Rotacionando proxy após detecção de CAPTCHA`);
-                browser = await rotateProxyAndRestartBrowser(browser);
-
-                if (counter >= 15) {
-                    console.log(`[${new Date().toISOString()}] CAPTCHA detected 15 times in a row. Waiting 3 minutes...`);
-                    // Espera 3 minutos antes de tentar novamente
-                    const captchaWaitTime = 3 * 60 * 1000; // 3 minutos em milissegundos
-                    await sleep(captchaWaitTime);
-                    counter = 0; // Reset counter after waiting
+                
+                // Verifica se atingiu o limite de 15 CAPTCHAs para ativar o modo proxy
+                if (counter >= 15 && !captchaDetectedInSession) {
+                    captchaDetectedInSession = true;
+                    console.log(`[${new Date().toISOString()}] Atingido limite de 15 CAPTCHAs! Ativando modo de rotação de proxies.`);
+                    browser = await rotateProxyAndRestartBrowser(browser);
                 }
-
-                // Reinicia o processo do começo
-                console.log(`[${new Date().toISOString()}] Restarting process from beginning...`);
-
-                return { captchaDetected: true, html: null, restartProcess: true, counter, browser };
+                
+                // Retorna informando que encontrou CAPTCHA, mas não faz reinicialização completa
+                return { 
+                    captchaDetected: true, 
+                    html: null, 
+                    counter, 
+                    browser,
+                    // Não reinicia o processo inteiro, apenas pula o registro atual
+                    restartProcess: false 
+                };
             }
 
             // Obtém o HTML da página
@@ -1293,7 +1287,7 @@ async function visitCompanySite(browser, site) {
     captchaDetectedInSession = false;
     
     // Inicializa o navegador com conexão direta por padrão
-    console.log(`[${new Date().toISOString()}] Starting with direct connection. Will use proxies only after CAPTCHA detection.`);
+    console.log(`[${new Date().toISOString()}] Starting with direct connection. Will use proxies only after 15 CAPTCHA detections.`);
     currentProxy = {
         ip: null,
         port: null,
@@ -1526,16 +1520,9 @@ async function visitCompanySite(browser, site) {
 
                             // Verifica se foi detectado CAPTCHA
                             if (searchResult.captchaDetected) {
-                                console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED!`);
-
-                                // Verifica se precisamos reiniciar todo o processo
-                                if (searchResult.restartProcess) {
-                                    console.log(`[${new Date().toISOString()}] Restarting entire scraping process...`);
-                                    return await startScraping(); // Reinicia todo o processo
-                                }
-
-                                // Se não recebeu flag de reinício, apenas pula para o próximo registro
-                                console.log(`[${new Date().toISOString()}] Skipping this record... (CAPTCHA count: ${captchaCounter})`);
+                                console.error(`[${new Date().toISOString()}] CAPTCHA detectado. Ignorando registro atual e continuando.`);
+                                
+                                // Pula para o próximo registro sem tentar reiniciar todo o processo
                                 continue; // Pula para a próxima iteração do loop principal
                             }
 
