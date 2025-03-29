@@ -296,7 +296,7 @@ function isEmailProviderDomain(site) {
                             const siteResponse = await axiosInstance.get("https://"+bd1.site);
                             const siteHtml = siteResponse.data;
                             const $site = cheerio.load(siteHtml);
-                            await sleep(3000)
+                            
                             // Extrai todo o texto do site
                             const siteText = $site('body').text();
                             
@@ -441,6 +441,10 @@ function isEmailProviderDomain(site) {
                         console.log(`[${new Date().toISOString()}] Searching Google for: ${query}`);
 
                         try {
+                            // Add a 3-second delay before making the request to Google
+                            console.log(`[${new Date().toISOString()}] Waiting 3 seconds before Google request...`);
+                            await sleep(3000);
+                            
                             // Faz a requisição HTTP para o Google
                             const response = await axiosInstance.get(searchUrl);
                             const html = response.data;
