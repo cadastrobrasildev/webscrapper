@@ -972,7 +972,7 @@ async function visitCompanySite(browser, site) {
                         // Busca informações adicionais no segundo banco de dados
                         const result2 = await pool2.query(`
                         SELECT 
-                        c.trade_name, cr."name", c.address_fu, c.address_city_name 
+                        c.trade_name, cr."name", c.address_fu, c.address_city_name, c.cnae_main 
                         FROM 
                         rf_company c
                         LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
@@ -988,6 +988,8 @@ async function visitCompanySite(browser, site) {
                         }
 
                         const bd2 = result2.rows[0];
+                        console.log("CNAE MAIn")
+                        console.log(bd2.cnae_main)
 
                         // Monta a consulta para o Google com base nas informações da empresa
                         const empresaQuery = `${bd2.trade_name || bd2.name} ${bd2.address_city_name || ''} ${bd2.address_fu || ''}`;

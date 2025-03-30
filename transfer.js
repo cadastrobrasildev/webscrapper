@@ -7,7 +7,7 @@ require('dotenv').config();
  */
 async function getManufacturingCompaniesInSC() {
   console.log(`[${new Date().toISOString()}] Attempting to connect to source database at 93.127.135.79...`);
-  console.log("v1.0.1")
+  console.log("Transfer v1.0.3")
   // Create a connection pool
   const pool = new Pool({
     host: '93.127.135.79',
@@ -27,29 +27,40 @@ async function getManufacturingCompaniesInSC() {
     console.log(`[${new Date().toISOString()}] Executing manufacturing companies query...`);
     // Execute query
     const result = await pool.query(`
-     SELECT 
-   c.*
+   SELECT 
+  c.*
 FROM 
     rf_company c
     LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
     LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root
     LEFT JOIN rf_company_tax_regime ctr ON c.cnpj_root = ctr.cnpj_root  
-WHERE c.cnae_main IN (
-    '1529700','1741902','1749400','2211100','2219600','2399199','2522500','2539001','2543800','2593400',
-    '2621300','2622100','2651500','2670102','2710401','2751100','2759701','2759799','2790201','2790299',
-    '2811900','2815102','2821601','2822401','2822402','2823200','2825900','2829101','2829199','2833300',
-    '2840200','2851800','2852600','2854200','2861500','2862300','2863100','2864000','2865800','2866600',
-    '2869100','3101200','3103900','3291400','3299002','3299099','3312102','3313999','3314701','3314707',
-    '3314708','3314709','3314710','3314711','3314713','3314714','3314715','3314717','3314718','3314719',
-    '3314720','3314721','3314722','3314799','3321000','2019399','2029100','2422901','2449199','2599399',
-    '2443100','2452100','2051700','2441501','2441502','2512800','2532201','2542000','2591800','2592601',
-    '2592602','2733300','2229301','2229302','2229303','2229399','2541100','2640000','2740602','2930103',
-    '3104700','3230200','3292201','3292202','1733800','3240099'
-)
-AND c.address_fu = '${process.env.TRANSFER_UF}' 
+WHERE (c.cnae_main LIKE '11%' 
+   OR c.cnae_main LIKE '12%' 
+   OR c.cnae_main LIKE '13%' 
+   OR c.cnae_main LIKE '14%' 
+   OR c.cnae_main LIKE '15%' 
+   OR c.cnae_main LIKE '16%' 
+   OR c.cnae_main LIKE '17%' 
+   OR c.cnae_main LIKE '18%' 
+   OR c.cnae_main LIKE '19%' 
+   OR c.cnae_main LIKE '20%' 
+   OR c.cnae_main LIKE '21%' 
+   OR c.cnae_main LIKE '22%' 
+   OR c.cnae_main LIKE '23%' 
+   OR c.cnae_main LIKE '24%' 
+   OR c.cnae_main LIKE '25%' 
+   OR c.cnae_main LIKE '26%' 
+   OR c.cnae_main LIKE '27%' 
+   OR c.cnae_main LIKE '28%' 
+   OR c.cnae_main LIKE '29%' 
+   OR c.cnae_main LIKE '30%' 
+   OR c.cnae_main LIKE '31%' 
+   OR c.cnae_main LIKE '32%' 
+   OR c.cnae_main LIKE '33%')
+  AND c.address_fu = '${process.env.TRANSFER_UF}' 
   AND c.situation_code = '02'
-ORDER BY random()
-LIMIT 30000
+   AND cr.name !~ '^[0-9]' 
+  AND cr.name !~ '[0-9]$'  
     `);
     
     
