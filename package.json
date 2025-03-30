@@ -2,9 +2,9 @@
   "name": "webscrapper",
   "version": "1.0.0",
   "description": "Web scraper for Google searches with CAPTCHA handling",
-  "main": "webscraperGooglePuppeteer.js",
+  "main": "webscraperGoogleCheerio.js",
   "scripts": {
-    "start": "node webscraperGooglePuppeteer.js",
+    "start": "node webscraperGoogleCheerio.js",
     "transfer": "node transfer.js",
     "scrap_site": "node webScraper.js",
     "scrap_google": "node webscraperGoogleCheerio.js",
