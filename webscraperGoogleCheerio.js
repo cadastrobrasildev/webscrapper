@@ -266,6 +266,85 @@ function isEmailProviderDomain(site) {
     return emailProviders.some(provider => cleanSite === provider || cleanSite.endsWith('.' + provider));
 }
 
+/**
+ * Verifica se um email está na lista negra
+ * @param {string} email - O email para verificar
+ * @returns {boolean} - True se o email estiver na lista negra, false caso contrário
+ */
+function isBlacklistedEmail(email) {
+    if (!email) return true;
+    
+    // Lista de emails específicos na lista negra
+    const blacklistedEmails = [
+        'sac@empresa.com.br',
+        'no.reply@empresa.com.br',
+        'naoresponda@empresa.com.br',
+        'contato@dominio.com.br',
+        'contato@site.com.br'
+    ];
+    
+    // Lista de domínios na lista negra
+    const blacklistedDomains = [
+        'gst@ic.com',
+        'a.com.br',
+        'ic.com',
+        'tempmail.com',
+        'guerrillamail.com',
+        'disposable.com',
+        'yopmail.com',
+        'mailcatch.com',
+        'getnada.com',
+        'sharklasers.com',
+        'example.com',
+        'domain.com',
+        'site.com.br',
+        'dominio.com.br',
+        'email.com'
+    ];
+    
+    // Lista de padrões de email na lista negra
+    const blacklistedPatterns = [
+        /^info@/i,
+        /^noreply@/i,
+        /^no-reply@/i,
+        /^donotreply@/i,
+        /^naoresponda@/i,
+        /^naorespondaeste@/i,
+        /^sac@/i,
+        /^ouvidoria@/i,
+        /^fiscal@/i,
+        /^cancelamento@/i,
+        /^fake@/i,
+        /^teste@/i,
+        /^test@/i,
+        /^example@/i,
+        /^admin@/i,
+        /^gts@/i,
+        /^econod@/i
+    ];
+    
+    // Verifica se o email está na lista de emails específicos
+    if (blacklistedEmails.includes(email.toLowerCase())) {
+        console.log(`[${new Date().toISOString()}] Email na lista negra: ${email}`);
+        return true;
+    }
+    
+    // Verifica se o domínio do email está na lista negra
+    const domain = email.split('@')[1].toLowerCase();
+    if (blacklistedDomains.some(blacklistedDomain => domain === blacklistedDomain || domain.endsWith(`.${blacklistedDomain}`))) {
+        console.log(`[${new Date().toISOString()}] Domínio de email na lista negra: ${domain}`);
+        return true;
+    }
+    
+    // Verifica se o email corresponde a algum padrão na lista negra
+    if (blacklistedPatterns.some(pattern => pattern.test(email))) {
+        console.log(`[${new Date().toISOString()}] Email com padrão na lista negra: ${email}`);
+        return true;
+    }
+    
+    return false;
+}
+
 (async () => {
     let captchaCounter = 0;
     
@@ -393,75 +472,11 @@ function isEmailProviderDomain(site) {
                                     
                                     // Tenta extrair email do texto principal
                                     const emailEncontrado = extrairEmail(siteText);
-                                    if (emailEncontrado) {
+                                    if (emailEncontrado && !isBlacklistedEmail(emailEncontrado)) {
                                         contato.email = emailEncontrado;
                                         console.log(`[${new Date().toISOString()}] Email encontrado no texto do site: ${contato.email}`);
-                                    } else {
-                                        // Se não encontrou no texto principal, procura em elementos específicos que geralmente contêm emails
-                                        console.log(`[${new Date().toISOString()}] Buscando email em elementos específicos da página...`);
-                                        
-                                        // Seletores comuns para áreas de contato
-                                        const contatoSeletores = [
-                                            'a[href^="mailto:"]',                 // Links de email
-                                            '.contact', '.contato',               // Classes comuns para áreas de contato
-                                            '#contact', '#contato',               // IDs comuns para áreas de contato
-                                            'footer a', '.footer a',              // Links em rodapés
-                                            '.email', '#email',                   // Classes/IDs específicos para email
-                                            '[itemprop="email"]',                 // Marcação de microdata
-                                            '.contact-info', '.info-contato'      // Outras classes comuns
-                                        ];
-                                        
-                                        // Procura por elementos específicos que geralmente contêm emails
-                                        for (const seletor of contatoSeletores) {
-                                            const elementos = $site(seletor);
-                                            if (elementos.length > 0) {
-                                                console.log(`[${new Date().toISOString()}] Encontrado ${elementos.length} elementos com seletor "${seletor}"`);
-                                                
-                                                for (let i = 0; i < elementos.length; i++) {
-                                                    const elemento = elementos[i];
-                                                    
-                                                    // Se for um link mailto, extrai diretamente
-                                                    const href = $site(elemento).attr('href');
-                                                    if (href && href.toLowerCase().startsWith('mailto:')) {
-                                                        const emailFromMailto = href.substring(7).split('?')[0].trim();
-                                                        if (emailFromMailto && emailFromMailto.includes('@')) {
-                                                            contato.email = emailFromMailto;
-                                                            console.log(`[${new Date().toISOString()}] Email encontrado em link mailto: ${contato.email}`);
-                                                            break;
-                                                        }
-                                                    }
-                                                    
-                                                    // Verifica o texto do elemento
-                                                    const textoElemento = $site(elemento).text();
-                                                    const emailNoElemento = extrairEmail(textoElemento);
-                                                    if (emailNoElemento) {
-                                                        contato.email = emailNoElemento;
-                                                        console.log(`[${new Date().toISOString()}] Email encontrado em elemento "${seletor}": ${contato.email}`);
-                                                        break;
-                                                    }
-                                                }
-                                                
-                                                if (contato.email) break; // Se já encontrou email, para a busca
-                                            }
-                                        }
-                                        
-                                        // Se ainda não encontrou, procura por links para páginas de contato
-                                        if (!contato.email) {
-                                            console.log(`[${new Date().toISOString()}] Buscando links para páginas de contato...`);
-                                            const contatoLinks = $site('a').filter(function() {
-                                                const texto = $site(this).text().toLowerCase();
-                                                return texto.includes('contato') || 
-                                                       texto.includes('contact') || 
-                                                       texto.includes('fale conosco') ||
-                                                       texto.includes('atendimento');
-                                            });
-                                            
-                                            if (contatoLinks.length > 0) {
-                                                console.log(`[${new Date().toISOString()}] Encontrado ${contatoLinks.length} links potenciais para páginas de contato`);
-                                                // Aqui poderíamos implementar uma visita à página de contato, mas isso aumentaria o número de requisições
-                                                // e poderia tornar o scraping mais lento e mais facilmente detectável
-                                            }
-                                        }
+                                    } else if (emailEncontrado) {
+                                        console.log(`[${new Date().toISOString()}] Email encontrado em lista negra, ignorado: ${emailEncontrado}`);
                                     }
                                 }
                                 
@@ -797,9 +812,11 @@ function isEmailProviderDomain(site) {
                                     // Apenas procura o email se ainda não o encontrou nos sites da empresa
                                     if (!contato.email) {
                                         const emailEncontrado = extrairEmail(pageText);
-                                        if (emailEncontrado) {
+                                        if (emailEncontrado && !isBlacklistedEmail(emailEncontrado)) {
                                             contato.email = emailEncontrado;
                                             console.log(`[${new Date().toISOString()}] Email complementado da página do Google: ${contato.email}`);
+                                        } else if (emailEncontrado) {
+                                            console.log(`[${new Date().toISOString()}] Email encontrado em lista negra, ignorado: ${emailEncontrado}`);
                                         }
                                     }
                                 }
@@ -821,9 +838,11 @@ function isEmailProviderDomain(site) {
                                 
                                 // Procura email nos resultados do Google
                                 const emailEncontrado = extrairEmail(pageText);
-                                if (emailEncontrado) {
+                                if (emailEncontrado && !isBlacklistedEmail(emailEncontrado)) {
                                     contato.email = emailEncontrado;
                                     console.log(`[${new Date().toISOString()}] Email encontrado nos resultados do Google: ${contato.email}`);
+                                } else if (emailEncontrado) {
+                                    console.log(`[${new Date().toISOString()}] Email encontrado em lista negra, ignorado: ${emailEncontrado}`);
                                 }
                                 
                                 // Procura site nos resultados do Google
@@ -866,9 +885,11 @@ function isEmailProviderDomain(site) {
                                     // Se ainda não temos email, tenta extrair deste bloco
                                     if (!contato.email) {
                                         const blockEmail = extrairEmail(infoBlockText);
-                                        if (blockEmail) {
+                                        if (blockEmail && !isBlacklistedEmail(blockEmail)) {
                                             contato.email = blockEmail;
                                             console.log(`[${new Date().toISOString()}] Email encontrado em bloco de informação do Google: ${contato.email}`);
+                                        } else if (blockEmail) {
+                                            console.log(`[${new Date().toISOString()}] Email encontrado em lista negra, ignorado: ${blockEmail}`);
                                         }
                                     }
                                 });
@@ -930,10 +951,14 @@ function isEmailProviderDomain(site) {
                                     paramIndex++;
                                 }
 
-                                if (contato.email) {
+                                // Verifica se o email não está na lista negra antes de incluí-lo na atualização
+                                if (contato.email && !isBlacklistedEmail(contato.email)) {
                                     fieldsToUpdate.push(`email = $${paramIndex}`);
                                     valuesToUpdate.push(contato.email);
                                     paramIndex++;
+                                } else if (contato.email) {
+                                    console.log(`[${new Date().toISOString()}] Email em lista negra não será salvo: ${contato.email}`);
+                                    contato.email = null; // Define como null para não usar email na lista negra
                                 }
 
                                 if (contato.site) {
