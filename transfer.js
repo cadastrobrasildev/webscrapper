@@ -34,7 +34,9 @@ FROM
     LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
     LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root
     LEFT JOIN rf_company_tax_regime ctr ON c.cnpj_root = ctr.cnpj_root  
-WHERE (c.cnae_main LIKE '11%' 
+WHERE (
+      c.cnae_main LIKE '10%' 
+   OR c.cnae_main LIKE '11%' 
    OR c.cnae_main LIKE '12%' 
    OR c.cnae_main LIKE '13%' 
    OR c.cnae_main LIKE '14%' 
