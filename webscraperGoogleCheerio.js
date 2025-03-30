@@ -77,26 +77,71 @@ function extrairTelefone(texto) {
  * @returns {string|null} - O e-mail encontrado ou null se não encontrado
  */
 function extrairEmail(texto) {
-    // Expressão regular melhorada para encontrar e-mails - similar à que você testou no console
-    const regexEmail = /[\w._-]+@[\w._-]+\.[\w._-]+/g;
+    // Limpa entidades HTML antes de iniciar a busca
+    const textoLimpo = texto.replace(/&(#[0-9]+|[a-z]+);/gi, match => {
+        if (match === '&amp;') return '&';
+        if (match === '&lt;') return '<';
+        if (match === '&gt;') return '>';
+        if (match === '&quot;') return '"';
+        if (match === '&#64;') return '@';
+        if (match === '&#46;') return '.';
+        if (match.startsWith('&#')) {
+            const code = parseInt(match.substring(2, match.length - 1));
+            return String.fromCharCode(code);
+        }
+        return match;
+    });
+    
+    // Expressão regular melhorada para encontrar e-mails
+    const regexEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
     
     // Encontra todos os e-mails no texto
-    const emails = texto.match(regexEmail);
+    const emails = textoLimpo.match(regexEmail);
     
     if (!emails || emails.length === 0) {
         console.log(`[${new Date().toISOString()}] Nenhum e-mail encontrado no texto com regex padrão`);
         
-        // Tenta encontrar emails ofuscados (por exemplo, "contato (at) dominio (dot) com")
-        const regexOfuscado = /([a-zA-Z0-9._-]+)[\s]*[\[\(]?at[\]\)]?[\s]*([a-zA-Z0-9._-]+)[\s]*[\[\(]?dot[\]\)]?[\s]*([a-zA-Z0-9._-]+)/gi;
-        const ofuscados = texto.match(regexOfuscado);
+        // Padrões de ofuscação comuns
+        const padroes = [
+            // contato (at) dominio (dot) com
+            {
+                regex: /([a-zA-Z0-9._%+-]+)[\s]*[\[\(]?(?:at|arroba|@)[\]\)]?[\s]*([a-zA-Z0-9.-]+)[\s]*[\[\(]?(?:dot|ponto|\.)[\]\)]?[\s]*([a-zA-Z]{2,})/gi,
+                construtor: (m, p1, p2, p3) => `${p1.trim()}@${p2.trim()}.${p3.trim()}`
+            },
+            // contato[at]dominio[dot]com
+            {
+                regex: /([a-zA-Z0-9._%+-]+)[\s]*\[(?:at|arroba|@)\][\s]*([a-zA-Z0-9.-]+)[\s]*\[(?:dot|ponto|\.)\][\s]*([a-zA-Z]{2,})/gi,
+                construtor: (m, p1, p2, p3) => `${p1.trim()}@${p2.trim()}.${p3.trim()}`
+            },
+            // contato[at]dominio.com
+            {
+                regex: /([a-zA-Z0-9._%+-]+)[\s]*\[(?:at|arroba|@)\][\s]*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi,
+                construtor: (m, p1, p2) => `${p1.trim()}@${p2.trim()}`
+            },
+            // contato(at)dominio.com
+            {
+                regex: /([a-zA-Z0-9._%+-]+)[\s]*\((?:at|arroba|@)\)[\s]*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi,
+                construtor: (m, p1, p2) => `${p1.trim()}@${p2.trim()}`
+            },
+            // contato AT dominio DOT com
+            {
+                regex: /([a-zA-Z0-9._%+-]+)[\s]+(?:AT|ARROBA)[\s]+([a-zA-Z0-9.-]+)[\s]+(?:DOT|PONTO)[\s]+([a-zA-Z]{2,})/gi,
+                construtor: (m, p1, p2, p3) => `${p1.trim()}@${p2.trim()}.${p3.trim()}`
+            }
+        ];
         
-        if (ofuscados && ofuscados.length > 0) {
-            // Converte o primeiro email ofuscado para formato normal
-            const partes = ofuscados[0].match(/([a-zA-Z0-9._-]+)[\s]*[\[\(]?at[\]\)]?[\s]*([a-zA-Z0-9._-]+)[\s]*[\[\(]?dot[\]\)]?[\s]*([a-zA-Z0-9._-]+)/i);
-            if (partes && partes.length >= 4) {
-                const emailReconstruido = `${partes[1].trim()}@${partes[2].trim()}.${partes[3].trim()}`;
-                console.log(`[${new Date().toISOString()}] E-mail ofuscado reconstruído: ${emailReconstruido}`);
-                return emailReconstruido;
+        // Tenta cada padrão de ofuscação
+        for (const padrao of padroes) {
+            const matches = [...textoLimpo.matchAll(padrao.regex)];
+            if (matches && matches.length > 0) {
+                const match = matches[0];
+                const emailReconstruido = padrao.construtor(...match);
+                
+                // Verifica se o email reconstruído parece válido
+                if (emailReconstruido.match(regexEmail)) {
+                    console.log(`[${new Date().toISOString()}] E-mail ofuscado reconstruído: ${emailReconstruido}`);
+                    return emailReconstruido;
+                }
             }
         }
         
@@ -109,7 +154,8 @@ function extrairEmail(texto) {
     const dominiosGenericos = [
         'gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 
         'live.com', 'icloud.com', 'aol.com', 'mail.com',
-        'protonmail.com', 'yandex.com', 'zoho.com'
+        'protonmail.com', 'yandex.com', 'zoho.com', 'uol.com.br',
+        'bol.com.br', 'terra.com.br', 'globo.com', 'ig.com.br'
     ];
     
     // Lista de prefixos de e-mail genéricos
@@ -118,11 +164,37 @@ function extrairEmail(texto) {
         'support@', 'suporte@', 'noreply@', 'no-reply@',
         'newsletter@', 'news@', 'marketing@', 'webmaster@',
         'admin@', 'administrador@', 'administrator@',
-        'help@', 'ajuda@', 'sac@'
+        'help@', 'ajuda@', 'sac@', 'atendimento@',
+        'comercial@', 'vendas@', 'sales@', 'fiscal@'
     ];
     
-    // Primeiro, procura por emails de domínio específico (não de serviços comuns)
-    for (const email of emails) {
+    // Filtrar emails válidos (eliminar possíveis falsos positivos)
+    const emailsValidos = emails.filter(email => {
+        // Verifica formato básico
+        if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
+            return false;
+        }
+        
+        // Verifica tamanho mínimo e máximo
+        if (email.length < 6 || email.length > 254) {
+            return false;
+        }
+        
+        // Verifica se domínio tem pelo menos um caractere antes do ponto
+        const dominioParts = email.split('@')[1].split('.');
+        if (dominioParts.some(part => part.length === 0)) {
+            return false;
+        }
+        
+        return true;
+    });
+    
+    if (emailsValidos.length === 0) {
+        return null;
+    }
+    
+    // Primeiro, procura por emails com domínio específico (não de serviços comuns)
+    for (const email of emailsValidos) {
         const dominio = email.split('@')[1].toLowerCase();
         
         if (!dominiosGenericos.includes(dominio) && 
@@ -132,17 +204,27 @@ function extrairEmail(texto) {
         }
     }
     
-    // Se não encontrou um email de domínio específico, tenta encontrar qualquer email não genérico
-    for (const email of emails) {
+    // Segundo, procura por emails com domínio específico mesmo com prefixo genérico
+    for (const email of emailsValidos) {
+        const dominio = email.split('@')[1].toLowerCase();
+        
+        if (!dominiosGenericos.includes(dominio)) {
+            console.log(`[${new Date().toISOString()}] E-mail com domínio específico encontrado (mesmo com prefixo genérico): ${email}`);
+            return email;
+        }
+    }
+    
+    // Terceiro, procura por qualquer email não genérico
+    for (const email of emailsValidos) {
         if (!emailsGenericos.some(prefix => email.toLowerCase().startsWith(prefix))) {
             console.log(`[${new Date().toISOString()}] E-mail não genérico encontrado: ${email}`);
             return email;
         }
     }
     
-    // Se não encontrou um email melhor, retorna o primeiro da lista
-    console.log(`[${new Date().toISOString()}] Retornando primeiro e-mail disponível: ${emails[0]}`);
-    return emails[0];
+    // Por fim, retorna o primeiro email válido da lista
+    console.log(`[${new Date().toISOString()}] Retornando primeiro e-mail disponível: ${emailsValidos[0]}`);
+    return emailsValidos[0];
 }
 
 /**
@@ -307,7 +389,7 @@ function isEmailProviderDomain(site) {
                                 // Busca email se ainda não temos - MODIFICAÇÃO AQUI
                                 if (!contato.email) {
                                     // Extrai texto de todo o site
-                                    const siteText = $site('body').text();
+                                    const siteText = $site('').text();
                                     
                                     // Tenta extrair email do texto principal
                                     const emailEncontrado = extrairEmail(siteText);

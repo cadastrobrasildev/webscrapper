@@ -48,7 +48,8 @@ WHERE c.cnae_main IN (
 )
 AND c.address_fu = '${process.env.TRANSFER_UF}' 
   AND c.situation_code = '02'
-  AND c.trade_name is not NULL 
+ORDER BY random()
+LIMIT 30000
     `);
     
     
