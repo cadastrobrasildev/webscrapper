@@ -7,7 +7,7 @@ require('dotenv').config();
  */
 async function getManufacturingCompaniesInSC() {
   console.log(`[${new Date().toISOString()}] Attempting to connect to source database at 93.127.135.79...`);
-  console.log("Transfer v1.0.3")
+  console.log("Transfer v1.0.4")
   // Create a connection pool
   const pool = new Pool({
     host: '93.127.135.79',
