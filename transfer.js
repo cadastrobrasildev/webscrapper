@@ -61,8 +61,8 @@ WHERE (
    OR c.cnae_main LIKE '33%')
   AND c.address_fu = '${process.env.TRANSFER_UF}' 
   AND c.situation_code = '02'
-   AND cr.name !~ '^[0-9]' 
-  AND cr.name !~ '[0-9]$'  
+  AND (cr.name ~ '^[0-9]' OR cr.name ~ '[0-9]$')
+  LIMIT 45000  
     `);
     
     
