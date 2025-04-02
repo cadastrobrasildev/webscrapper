@@ -35,36 +35,36 @@ console.log("v1.0.7")
 function extrairTelefone(texto) {
     // Expressão regular para encontrar telefones no formato brasileiro
     const regexTelefone = /(\(?\d{2}\)?\s*\d{4,5}[-.\s]?\d{4})/g;
-    
+
     // Encontra todos os telefones no texto
     const telefones = texto.match(regexTelefone);
-    
+
     if (!telefones || telefones.length === 0) {
         return null;
     }
-    
+
     // Pega o primeiro telefone encontrado
     const telefoneCompleto = telefones[0];
     console.log(`[${new Date().toISOString()}] Telefone encontrado (bruto): ${telefoneCompleto}`);
-    
+
     // Extrai apenas os dígitos do telefone
     const apenasDigitos = telefoneCompleto.replace(/\D/g, '');
     console.log(`[${new Date().toISOString()}] Telefone apenas dígitos: ${apenasDigitos}`);
-    
+
     // Verifica se o número tem pelo menos 10 dígitos (DDD + número)
     if (apenasDigitos.length < 10) {
         console.log(`[${new Date().toISOString()}] Telefone inválido: menos de 10 dígitos`);
         return null;
     }
-    
+
     // Extrai o DDD (os dois primeiros dígitos)
     const ddd = apenasDigitos.substring(0, 2);
-    
+
     // Extrai o número sem o DDD
     const numero = apenasDigitos.substring(2);
-    
+
     console.log(`[${new Date().toISOString()}] DDD extraído: ${ddd}, Número: ${numero}`);
-    
+
     return {
         telefoneCompleto: telefoneCompleto,
         tel1_dd: ddd,
@@ -92,16 +92,16 @@ function extrairEmail(texto) {
         }
         return match;
     });
-    
+
     // Expressão regular melhorada para encontrar e-mails
     const regexEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-    
+
     // Encontra todos os e-mails no texto
     const emails = textoLimpo.match(regexEmail);
-    
+
     if (!emails || emails.length === 0) {
         console.log(`[${new Date().toISOString()}] Nenhum e-mail encontrado no texto com regex padrão`);
-        
+
         // Padrões de ofuscação comuns
         const padroes = [
             // contato (at) dominio (dot) com
@@ -130,35 +130,40 @@ function extrairEmail(texto) {
                 construtor: (m, p1, p2, p3) => `${p1.trim()}@${p2.trim()}.${p3.trim()}`
             }
         ];
-        
+
         // Tenta cada padrão de ofuscação
         for (const padrao of padroes) {
             const matches = [...textoLimpo.matchAll(padrao.regex)];
             if (matches && matches.length > 0) {
                 const match = matches[0];
                 const emailReconstruido = padrao.construtor(...match);
-                
+
                 // Verifica se o email reconstruído parece válido
                 if (emailReconstruido.match(regexEmail)) {
                     console.log(`[${new Date().toISOString()}] E-mail ofuscado reconstruído: ${emailReconstruido}`);
-                    return emailReconstruido;
+                    if (emailReconstruido.includes("random") || emailReconstruido.includes("econod")) {
+                        return null
+                    } else {
+                        return emailReconstruido;
+
+                    }
                 }
             }
         }
-        
+
         return null;
     }
-    
+
     console.log(`[${new Date().toISOString()}] ${emails.length} e-mails encontrados no texto`);
-    
+
     // Lista de domínios de serviços de e-mail conhecidos
     const dominiosGenericos = [
-        'gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 
+        'gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com',
         'live.com', 'icloud.com', 'aol.com', 'mail.com',
         'protonmail.com', 'yandex.com', 'zoho.com', 'uol.com.br',
         'bol.com.br', 'terra.com.br', 'globo.com', 'ig.com.br'
     ];
-    
+
     // Lista de prefixos de e-mail genéricos
     const emailsGenericos = [
         'info@', 'contato@', 'contact@', 'mail@', 'email@',
@@ -168,53 +173,53 @@ function extrairEmail(texto) {
         'help@', 'ajuda@', 'sac@', 'atendimento@',
         'comercial@', 'vendas@', 'sales@', 'fiscal@'
     ];
-    
+
     // Filtrar emails válidos (eliminar possíveis falsos positivos)
     const emailsValidos = emails.filter(email => {
         // Verifica formato básico
         if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email)) {
             return false;
         }
-        
+
         // Verifica tamanho mínimo e máximo
         if (email.length < 6 || email.length > 254) {
             return false;
         }
-        
+
         // Verifica se domínio tem pelo menos um caractere antes do ponto
         const dominioParts = email.split('@')[1].split('.');
         if (dominioParts.some(part => part.length === 0)) {
             return false;
         }
-        
+
         return true;
     });
-    
+
     if (emailsValidos.length === 0) {
         return null;
     }
-    
+
     // Primeiro, procura por emails com domínio específico (não de serviços comuns)
     for (const email of emailsValidos) {
         const dominio = email.split('@')[1].toLowerCase();
-        
-        if (!dominiosGenericos.includes(dominio) && 
+
+        if (!dominiosGenericos.includes(dominio) &&
             !emailsGenericos.some(prefix => email.toLowerCase().startsWith(prefix))) {
             console.log(`[${new Date().toISOString()}] E-mail de domínio específico encontrado: ${email}`);
             return email;
         }
     }
-    
+
     // Segundo, procura por emails com domínio específico mesmo com prefixo genérico
     for (const email of emailsValidos) {
         const dominio = email.split('@')[1].toLowerCase();
-        
+
         if (!dominiosGenericos.includes(dominio)) {
             console.log(`[${new Date().toISOString()}] E-mail com domínio específico encontrado (mesmo com prefixo genérico): ${email}`);
             return email;
         }
     }
-    
+
     // Terceiro, procura por qualquer email não genérico
     for (const email of emailsValidos) {
         if (!emailsGenericos.some(prefix => email.toLowerCase().startsWith(prefix))) {
@@ -222,7 +227,7 @@ function extrairEmail(texto) {
             return email;
         }
     }
-    
+
     // Por fim, retorna o primeiro email válido da lista
     console.log(`[${new Date().toISOString()}] Retornando primeiro e-mail disponível: ${emailsValidos[0]}`);
     return emailsValidos[0];
@@ -256,13 +261,13 @@ function isEmailProviderDomain(site) {
         'ig.com.br',
         'globo.com'
     ];
-    
+
     // Limpa o site para comparação (remove http://, https://, www.)
     let cleanSite = site.toLowerCase();
     cleanSite = cleanSite.replace(/^https?:\/\//i, '');
     cleanSite = cleanSite.replace(/^www\./i, '');
     cleanSite = cleanSite.trim();
-    
+
     // Verifica se o site termina com qualquer um dos domínios de email
     return emailProviders.some(provider => cleanSite === provider || cleanSite.endsWith('.' + provider));
 }
@@ -274,7 +279,7 @@ function isEmailProviderDomain(site) {
  */
 function isBlacklistedEmail(email) {
     if (!email) return true;
-    
+
     // Lista de emails específicos na lista negra
     const blacklistedEmails = [
         'sac@empresa.com.br',
@@ -283,7 +288,7 @@ function isBlacklistedEmail(email) {
         'contato@dominio.com.br',
         'contato@site.com.br'
     ];
-    
+
     // Lista de domínios na lista negra
     const blacklistedDomains = [
         'gst@ic.com',
@@ -302,7 +307,7 @@ function isBlacklistedEmail(email) {
         'dominio.com.br',
         'email.com'
     ];
-    
+
     // Lista de padrões de email na lista negra
     const blacklistedPatterns = [
         /^info@/i,
@@ -323,26 +328,26 @@ function isBlacklistedEmail(email) {
         /^gts@/i,
         /^econod@/i
     ];
-    
+
     // Verifica se o email está na lista de emails específicos
     if (blacklistedEmails.includes(email.toLowerCase())) {
         console.log(`[${new Date().toISOString()}] Email na lista negra: ${email}`);
         return true;
     }
-    
+
     // Verifica se o domínio do email está na lista negra
     const domain = email.split('@')[1].toLowerCase();
     if (blacklistedDomains.some(blacklistedDomain => domain === blacklistedDomain || domain.endsWith(`.${blacklistedDomain}`))) {
         console.log(`[${new Date().toISOString()}] Domínio de email na lista negra: ${domain}`);
         return true;
     }
-    
+
     // Verifica se o email corresponde a algum padrão na lista negra
     if (blacklistedPatterns.some(pattern => pattern.test(email))) {
         console.log(`[${new Date().toISOString()}] Email com padrão na lista negra: ${email}`);
         return true;
     }
-    
+
     return false;
 }
 
@@ -358,20 +363,20 @@ async function getRandomProxy() {
         'http://username:password@proxy3.example.com:8080',
         // Adicione mais proxies à sua lista
     ];
-    
+
     // Também pode obter proxies de um serviço online
     try {
         // Tenta buscar uma lista de proxies gratuitos de um serviço
         const response = await axios.get('https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all');
         const proxyData = response.data;
-        
+
         if (typeof proxyData === 'string') {
             // Adiciona proxies obtidos à lista
             const newProxies = proxyData
                 .split('\n')
                 .filter(proxy => proxy.trim().length > 0)
                 .map(proxy => `http://${proxy.trim()}`);
-                
+
             proxyList.push(...newProxies);
             console.log(`[${new Date().toISOString()}] Added ${newProxies.length} proxies from online service`);
         }
@@ -379,33 +384,33 @@ async function getRandomProxy() {
         console.log(`[${new Date().toISOString()}] Failed to fetch proxies from online service: ${error.message}`);
         // Continua com a lista de proxies existente
     }
-    
+
     // Escolhe um proxy aleatório da lista
     if (proxyList.length === 0) {
         console.log(`[${new Date().toISOString()}] No proxies available`);
         return null;
     }
-    
+
     const randomProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
-    
+
     try {
         // Verifica se o proxy está funcionando
         console.log(`[${new Date().toISOString()}] Testing proxy: ${randomProxy}`);
-        
+
         // Usa o proxy-chain para autenticação
         const newProxyUrl = await ProxyChain.anonymizeProxy(randomProxy);
-        
+
         // Testa o proxy com uma requisição simples
         const testResponse = await axios.get('https://httpbin.org/ip', {
             proxy: false,  // Desativa o proxy padrão do axios
-            httpsAgent: new require('https').Agent({ 
+            httpsAgent: new require('https').Agent({
                 proxy: newProxyUrl,
                 timeout: 5000,
                 rejectUnauthorized: false
             }),
             timeout: 10000,
         });
-        
+
         console.log(`[${new Date().toISOString()}] Proxy test successful: ${JSON.stringify(testResponse.data)}`);
         return newProxyUrl;
     } catch (error) {
@@ -435,10 +440,10 @@ async function createAxiosWithProxy() {
         timeout: 30000,
         maxRedirects: 5
     };
-    
+
     // Tenta obter um proxy válido
     const proxyUrl = await getRandomProxy();
-    
+
     if (proxyUrl) {
         console.log(`[${new Date().toISOString()}] Using proxy: ${proxyUrl}`);
         // Configura o axios com o proxy
@@ -450,13 +455,13 @@ async function createAxiosWithProxy() {
     } else {
         console.log(`[${new Date().toISOString()}] No working proxy found, proceeding without proxy`);
     }
-    
+
     return axios.create(config);
 }
 
 (async () => {
     let captchaCounter = 0;
-    
+
     async function startScraping() {
         try {
             // Define um user agent aleatório para ajudar a disfarçar a automação
@@ -493,10 +498,10 @@ async function createAxiosWithProxy() {
                     tel1_dd: null,
                     tel1: null
                 };
-                
+
                 // Adicionar um flag para rastrear erros durante o processamento
                 let hasProcessingError = false;
-                
+
                 // Busca uma indústria aleatória que precisa de dados
                 const result1 = await pool1.query(`SELECT id, cnpj, site, email, tel1_dd, tel1
                 FROM transfer 
@@ -513,16 +518,16 @@ async function createAxiosWithProxy() {
                 }
 
                 const bd1 = result1.rows[0];
-                console.log(`[${new Date().toISOString()}] Processing CNPJ: ${bd1.cnpj}`);            
+                console.log(`[${new Date().toISOString()}] Processing CNPJ: ${bd1.cnpj}`);
                 // Inicializa contato com valores do banco, se existirem
                 if (bd1.site) contato.site = bd1.site;
                 if (bd1.email) contato.email = bd1.email;
                 if (bd1.tel1_dd) contato.tel1_dd = bd1.tel1_dd;
                 if (bd1.tel1) contato.tel1 = bd1.tel1;
-                
+
                 // Flag para indicar se precisamos buscar no Google
                 let needGoogleSearch = true;
-                
+
                 // Se já temos um site, vamos scrapear primeiro
                 if (bd1.site) {
                     // Verifica se o site parece ser um domínio de provedor de email
@@ -531,7 +536,7 @@ async function createAxiosWithProxy() {
                         needGoogleSearch = true;
                     } else {
                         console.log(`[${new Date().toISOString()}] Site already exists in database: ${bd1.site}. Scraping it first.`);
-                        
+
                         try {
                             // Define um user agent aleatório
                             const userAgent = randomUseragent.getRandom();
@@ -552,15 +557,15 @@ async function createAxiosWithProxy() {
                                     return status >= 200 && status < 300;
                                 }
                             });
-                            
+
                             // Visita o site da empresa
-                            const siteResponse = await axiosInstance.get("https://"+bd1.site);
+                            const siteResponse = await axiosInstance.get("https://" + bd1.site);
                             const siteHtml = siteResponse.data;
                             const $site = cheerio.load(siteHtml);
-                            
+
                             // Extrai todo o texto do site
                             const siteText = $site('body').text();
-                            
+
                             // Verifica se o site tem conteúdo mínimo
                             if (siteText.length > 100) {
                                 // Busca telefone se ainda não temos
@@ -573,12 +578,12 @@ async function createAxiosWithProxy() {
                                         console.log(`[${new Date().toISOString()}] Telefone encontrado no site da empresa: ${contato.telefone}, DDD: ${contato.tel1_dd}, Número: ${contato.tel1}`);
                                     }
                                 }
-                                
+
                                 // Busca email se ainda não temos - MODIFICAÇÃO AQUI
                                 if (!contato.email) {
                                     // Extrai texto de todo o site
                                     const siteText = $site('').text();
-                                    
+
                                     // Tenta extrair email do texto principal
                                     const emailEncontrado = extrairEmail(siteText);
                                     if (emailEncontrado && !isBlacklistedEmail(emailEncontrado)) {
@@ -588,7 +593,7 @@ async function createAxiosWithProxy() {
                                         console.log(`[${new Date().toISOString()}] Email encontrado em lista negra, ignorado: ${emailEncontrado}`);
                                     }
                                 }
-                                
+
                                 // Se já encontramos telefone e email, não precisamos buscar no Google
                                 if (contato.tel1 && contato.tel1_dd && contato.email) {
                                     console.log(`[${new Date().toISOString()}] Found all needed contact info from company website. Skipping Google search.`);
@@ -606,7 +611,7 @@ async function createAxiosWithProxy() {
                         }
                     }
                 }
-                
+
                 // Se ainda precisamos buscar no Google (site não existente, erro ao acessar, ou faltam dados)
                 if (needGoogleSearch) {
                     try {
@@ -628,8 +633,8 @@ async function createAxiosWithProxy() {
                             continue;
                         }
 
-                        const bd2 = result2.rows[0];  
-                        
+                        const bd2 = result2.rows[0];
+
                         console.log("CNAE MAIn")
                         console.log(bd2.cnae_main)
 
@@ -641,20 +646,17 @@ async function createAxiosWithProxy() {
                         console.log(`[${new Date().toISOString()}] Searching Google for: ${query}`);
 
                         try {
-                            // Add a delay before making the request to Google
-                            console.log(`[${new Date().toISOString()}] Waiting 3 seconds before Google request...`);
-                            await sleep(3000);
-                            
+
                             // Cria uma instância do axios com um proxy aleatório para cada requisição ao Google
                             // Isso substitui a instância global do axios que você estava usando antes
                             const axiosInstance = await createAxiosWithProxy();
-                            
+
                             // Faz a requisição HTTP para o Google usando o proxy
                             const response = await axiosInstance.get(searchUrl);
                             const html = response.data;
-                            
+
                             // Verifica se o Google apresentou um CAPTCHA
-                            const isCaptchaPresent = 
+                            const isCaptchaPresent =
                                 response.request.path.includes('/sorry/') ||
                                 response.request.path.includes('captcha') ||
                                 html.includes('unusual traffic') ||
@@ -666,7 +668,7 @@ async function createAxiosWithProxy() {
                             if (isCaptchaPresent) {
                                 console.error(`[${new Date().toISOString()}] CAPTCHA DETECTED! Attempt #${captchaCounter + 1}`);
                                 captchaCounter++;
-                                
+
                                 if (captchaCounter >= 3) {
                                     console.log(`[${new Date().toISOString()}] CAPTCHA detected 3 times in a row. Waiting 3 minutes...`);
                                     // Espera 3 minutos antes de tentar novamente
@@ -674,11 +676,11 @@ async function createAxiosWithProxy() {
                                     await sleep(captchaWaitTime);
                                     captchaCounter = 0; // Reset counter after waiting
                                 }
-                                
+
                                 // Troca o User-Agent para a próxima tentativa
                                 axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
                                 console.log(`[${new Date().toISOString()}] Changed User-Agent for next attempt`);
-                                
+
                                 // Aguarda um tempo antes de continuar
                                 await sleep(10000);
                                 continue;
@@ -694,7 +696,7 @@ async function createAxiosWithProxy() {
 
                             // Procurar por links de sites da empresa nos resultados do Google
                             const companyLinks = [];
-                            
+
                             // Prepara termos para comparação
                             const companyName = (bd2.name || bd2.trade_name || '').toLowerCase();
                             // Remove caracteres especiais e divide em palavras
@@ -708,25 +710,25 @@ async function createAxiosWithProxy() {
                             // Extrai todos os links dos resultados de pesquisa do Google
                             $('a').each((i, link) => {
                                 const href = $(link).attr('href');
-                                
+
                                 // Verifica se é um link externo (não do google)
                                 if (href && href.startsWith('/url?q=')) {
                                     // Extrair a URL real do parâmetro q=
                                     let realUrl = href.substring(7);
                                     const endIndex = realUrl.indexOf('&');
-                                    
+
                                     if (endIndex !== -1) {
                                         realUrl = realUrl.substring(0, endIndex);
                                     }
-                                    
+
                                     // Ignora URLs do Google, YouTube, Facebook, etc. e gstatic
                                     const ignoreList = [
-                                        'google.com', 
+                                        'google.com',
                                         'gstatic.com',
                                         'googleusercontent.com',
-                                        'youtube.com', 
-                                        'facebook.com', 
-                                        'linkedin.com', 
+                                        'youtube.com',
+                                        'facebook.com',
+                                        'linkedin.com',
                                         'instagram.com',
                                         'twitter.com',
                                         'wikipedia.org',
@@ -743,48 +745,48 @@ async function createAxiosWithProxy() {
                                         'gov.br'
                                     ];
                                     const shouldIgnore = ignoreList.some(ignoreDomain => realUrl.includes(ignoreDomain));
-                                    
+
                                     if (!shouldIgnore) {
                                         try {
                                             // Extrai o domínio para verificar se está relacionado à empresa
                                             const url = new URL(realUrl);
                                             const domain = url.hostname.toLowerCase();
-                                            
+
                                             // Limpa o domínio para comparação
                                             const cleanDomain = domain.replace('www.', '');
-                                            
+
                                             // Verifica se o domínio contém partes significativas do nome da empresa
                                             let isRelated = false;
-                                            
+
                                             // Prepara o nome da empresa simplificado (remove LTDA, ME, etc.)
                                             const simplifiedCompanyName = companyName
                                                 .replace(/\bltda\b|\bme\b|\bepp\b|\bsa\b|\beireli\b|\bcompany\b|\binc\b|\bcorp\b/g, '')
                                                 .trim();
-                                            
+
                                             // Prepara uma versão sem espaços para correspondência exata
                                             const noSpaceCompanyName = simplifiedCompanyName.replace(/\s+/g, '');
-                                            
+
                                             // Separa o domínio principal (antes do primeiro ponto)
                                             const mainDomainPart = cleanDomain.split('.')[0];
-                                            
+
                                             // VERIFICAÇÃO 1: Correspondência direta entre nome da empresa e domínio principal
                                             // Esta é a verificação mais restritiva e confiável
-                                            if (mainDomainPart === noSpaceCompanyName || 
-                                                (noSpaceCompanyName.length > 5 && mainDomainPart.includes(noSpaceCompanyName)) || 
+                                            if (mainDomainPart === noSpaceCompanyName ||
+                                                (noSpaceCompanyName.length > 5 && mainDomainPart.includes(noSpaceCompanyName)) ||
                                                 (mainDomainPart.length > 5 && noSpaceCompanyName.includes(mainDomainPart))) {
                                                 isRelated = true;
                                                 console.log(`[${new Date().toISOString()}] Found exact company match: ${domain} matches "${noSpaceCompanyName}"`);
                                             }
-                                            
+
                                             // VERIFICAÇÃO 2: Correspondência de palavras significativas
                                             // Se a verificação 1 falhar, procuramos palavras significativas do nome da empresa no domínio
                                             if (!isRelated) {
                                                 // Filtra apenas palavras significativas (mais de 3 caracteres e não genéricas)
-                                                const significantWords = companyWords.filter(word => 
-                                                    word.length > 3 && 
+                                                const significantWords = companyWords.filter(word =>
+                                                    word.length > 3 &&
                                                     !['para', 'com', 'dos', 'das', 'ltda', 'epp', 'eireli'].includes(word)
                                                 );
-                                                
+
                                                 for (const word of significantWords) {
                                                     // A palavra precisa ser uma parte substancial do domínio
                                                     if (word.length > 4 && mainDomainPart.includes(word)) {
@@ -794,13 +796,13 @@ async function createAxiosWithProxy() {
                                                     }
                                                 }
                                             }
-                                            
+
                                             // VERIFICAÇÃO 3: Verificação por combinação de palavras (apenas para nomes compostos)
                                             // Útil para casos como "Top Clima" que se torna "topclima" no domínio
                                             if (!isRelated && companyWords.length >= 2) {
                                                 // Apenas verificamos combinações de palavras adjacentes
                                                 for (let i = 0; i < companyWords.length - 1; i++) {
-                                                    if (companyWords[i].length > 2 && companyWords[i+1].length > 2) {
+                                                    if (companyWords[i].length > 2 && companyWords[i + 1].length > 2) {
                                                         const combinedWord = companyWords[i] + companyWords[i + 1];
                                                         if (combinedWord.length > 5 && mainDomainPart === combinedWord) {
                                                             isRelated = true;
@@ -810,7 +812,7 @@ async function createAxiosWithProxy() {
                                                     }
                                                 }
                                             }
-                                            
+
                                             // VERIFICAÇÃO 4: Verificação por lista de domínios conhecidos
                                             // Para casos especiais que sabemos que são válidos
                                             if (!isRelated) {
@@ -818,7 +820,7 @@ async function createAxiosWithProxy() {
                                                     { company: "topclima", domain: "topclima.com.br" },
                                                     // adicione outros domínios conhecidos conforme necessário
                                                 ];
-                                                
+
                                                 for (const known of knownDomains) {
                                                     if (companyName.includes(known.company) && domain === known.domain) {
                                                         isRelated = true;
@@ -827,21 +829,21 @@ async function createAxiosWithProxy() {
                                                     }
                                                 }
                                             }
-                                            
+
                                             // Verificação adicional: checa se o texto do link indica que é o site oficial
                                             if (!isRelated) {
                                                 const linkText = $(link).text().toLowerCase();
                                                 // Corrigido para usar linkText.includes em todas as verificações
-                                                if (linkText.includes('site oficial') || 
-                                                    linkText.includes('website') || 
-                                                    linkText.includes('página oficial') || 
+                                                if (linkText.includes('site oficial') ||
+                                                    linkText.includes('website') ||
+                                                    linkText.includes('página oficial') ||
                                                     linkText.includes('oficial')) {
-                                                    
+
                                                     // Mesmo para links marcados como "site oficial", ainda verificamos alguma relação com o nome
-                                                    const hasAnyRelation = companyWords.some(word => 
+                                                    const hasAnyRelation = companyWords.some(word =>
                                                         word.length > 3 && mainDomainPart.includes(word)
                                                     );
-                                                    
+
                                                     if (hasAnyRelation) {
                                                         isRelated = true;
                                                         console.log(`[${new Date().toISOString()}] Found likely official site: ${domain} (link text suggests official site)`);
@@ -850,7 +852,7 @@ async function createAxiosWithProxy() {
                                                     }
                                                 }
                                             }
-                                            
+
                                             if (isRelated) {
                                                 companyLinks.push(realUrl);
                                             }
@@ -865,7 +867,7 @@ async function createAxiosWithProxy() {
                             // Se não encontrou links da empresa, tenta buscar nos resultados especiais do Google
                             if (companyLinks.length === 0) {
                                 console.log(`[${new Date().toISOString()}] No company links found. Checking for business info cards...`);
-                                
+
                                 // Procura nos painéis de informação da empresa (Google Business Profile)
                                 $('.kp-header a').each((i, link) => {
                                     const href = $(link).attr('href');
@@ -879,22 +881,22 @@ async function createAxiosWithProxy() {
                                         }
                                     }
                                 });
-                                
+
                                 // Procura no painel lateral de informações
                                 $('.Z1hOCe a[href], .zloOqf a[href]').each((i, link) => {
                                     const href = $(link).attr('href');
                                     if (href && !href.startsWith('/') && !href.includes('google.com')) {
                                         try {
                                             console.log(`[${new Date().toISOString()}] Found website from info panel: ${href}`);
-                                            
+
                                             console.log(`[${new Date().toISOString()}] Site does not exist or is not reachable: ${siteUrl}`);
-                                            
+
                                             // Se o site não existir, remova-o da lista de sites da empresa
                                             const index = companyLinks.indexOf(siteUrl);
                                             if (index > -1) {
                                                 companyLinks.splice(index, 1);
                                             }
-                                            
+
                                             // Não use esse site como fonte de dados
                                             if (contato.site === siteUrl) {
                                                 contato.site = null;
@@ -905,15 +907,15 @@ async function createAxiosWithProxy() {
                                         }
                                     }
                                 });
-                                
+
                                 // IMPORTANTE: Se visitou sites da empresa, não deve buscar dados do Google
                                 // A menos que não encontrou todos os dados necessários
                                 if (!contato.telefone || !contato.email) {
                                     console.log(`[${new Date().toISOString()}] Missing some contact data after checking company sites. Supplementing with Google results.`);
-                                    
+
                                     // Extrai todo o texto da página do Google para complementar os dados faltantes
                                     const pageText = $('body').text();
-                                    
+
                                     // Apenas procura o telefone se ainda não o encontrou nos sites da empresa
                                     if (!contato.telefone) {
                                         const infoTelefone = extrairTelefone(pageText);
@@ -924,7 +926,7 @@ async function createAxiosWithProxy() {
                                             console.log(`[${new Date().toISOString()}] Telefone complementado da página do Google: ${contato.telefone}, DDD: ${contato.tel1_dd}, Número: ${contato.tel1}`);
                                         }
                                     }
-                                    
+
                                     // Apenas procura o email se ainda não o encontrou nos sites da empresa
                                     if (!contato.email) {
                                         const emailEncontrado = extrairEmail(pageText);
@@ -939,10 +941,10 @@ async function createAxiosWithProxy() {
                             } else {
                                 // Processa dados do Google quando nenhum site foi encontrado
                                 console.log(`[${new Date().toISOString()}] No company-specific sites found. Using Google results page.`);
-                                
+
                                 // Extrai todo o texto da página do Google
                                 const pageText = $('body').text();
-                                
+
                                 // Procura telefone nos resultados do Google
                                 const infoTelefone = extrairTelefone(pageText);
                                 if (infoTelefone) {
@@ -951,7 +953,7 @@ async function createAxiosWithProxy() {
                                     contato.tel1 = infoTelefone.tel1;
                                     console.log(`[${new Date().toISOString()}] Telefone encontrado nos resultados do Google: ${contato.telefone}, DDD: ${contato.tel1_dd}, Número: ${contato.tel1}`);
                                 }
-                                
+
                                 // Procura email nos resultados do Google
                                 const emailEncontrado = extrairEmail(pageText);
                                 if (emailEncontrado && !isBlacklistedEmail(emailEncontrado)) {
@@ -960,21 +962,21 @@ async function createAxiosWithProxy() {
                                 } else if (emailEncontrado) {
                                     console.log(`[${new Date().toISOString()}] Email encontrado em lista negra, ignorado: ${emailEncontrado}`);
                                 }
-                                
+
                                 // Procura site nos resultados do Google
                                 const matchSite = pageText.match(regexSite);
                                 if (matchSite && matchSite.length) {
                                     // Filtra para evitar sites conhecidos não relacionados à empresa
                                     const ignoreList = [
-                                        'google.com', 'youtube.com', 'facebook.com', 'linkedin.com', 
+                                        'google.com', 'youtube.com', 'facebook.com', 'linkedin.com',
                                         'instagram.com', 'twitter.com', 'wikipedia.org'
                                     ];
-                                    
+
                                     for (const potentialSite of matchSite) {
-                                        const shouldIgnore = ignoreList.some(ignoreSite => 
+                                        const shouldIgnore = ignoreList.some(ignoreSite =>
                                             potentialSite.includes(ignoreSite)
                                         );
-                                        
+
                                         if (!shouldIgnore) {
                                             contato.site = potentialSite;
                                             console.log(`[${new Date().toISOString()}] Site potencial encontrado nos resultados do Google: ${contato.site}`);
@@ -982,11 +984,11 @@ async function createAxiosWithProxy() {
                                         }
                                     }
                                 }
-                                
+
                                 // Procura especificamente por blocos de informação de contato no Google
                                 $('.kp-header, .Z1hOCe, .zloOqf, .ruhjFe').each((_, element) => {
                                     const infoBlockText = $(element).text();
-                                    
+
                                     // Se ainda não temos telefone, tenta extrair deste bloco
                                     if (!contato.telefone) {
                                         const blockTelefone = extrairTelefone(infoBlockText);
@@ -997,7 +999,7 @@ async function createAxiosWithProxy() {
                                             console.log(`[${new Date().toISOString()}] Telefone encontrado em bloco de informação do Google: ${contato.telefone}`);
                                         }
                                     }
-                                    
+
                                     // Se ainda não temos email, tenta extrair deste bloco
                                     if (!contato.email) {
                                         const blockEmail = extrairEmail(infoBlockText);
@@ -1012,31 +1014,30 @@ async function createAxiosWithProxy() {
                             }
                         } catch (error) {
                             console.error(`[${new Date().toISOString()}] Error fetching search results:`, error.message);
-                            
+
                             // Tratamento específico para erro 429 (Too Many Requests)
                             if (error.response?.status === 429) {
                                 console.error(`[${new Date().toISOString()}] RATE LIMIT DETECTED (429)! Google is blocking our requests.`);
-                                
+
                                 // Implementa um backoff exponencial - quanto mais receber 429, mais tempo espera
                                 const backoffTime = Math.pow(2, captchaCounter + 2) * 10000; // 40s, 80s, 160s, etc.
-                                console.log(`[${new Date().toISOString()}] Waiting ${backoffTime/1000} seconds before retrying...`);
-                                
+                                console.log(`[${new Date().toISOString()}] Waiting ${backoffTime / 1000} seconds before retrying...`);
+
                                 // Incrementa o contador de captcha (reutilizando para o backoff)
                                 captchaCounter++;
-                                
+
                                 // Troca o User-Agent para próxima tentativa
                                 axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
                                 console.log(`[${new Date().toISOString()}] Changed User-Agent to: ${axiosInstance.defaults.headers['User-Agent']}`);
-                                
+
                                 // Espera o tempo de backoff antes de continuar
                                 await sleep(backoffTime);
                                 continue; // Continua com o mesmo registro após a espera
                             }
-                            
+
                             // Tratamento para outros erros (existente)
                             if (error.code === 'ECONNABORTED' || error.response?.status === 403) {
                                 console.log(`[${new Date().toISOString()}] Connection issue or access denied. Waiting 30 seconds...`);
-                                await sleep(30000);
                                 // Troca o User-Agent para a próxima tentativa
                                 axiosInstance.defaults.headers['User-Agent'] = randomUseragent.getRandom();
                             }
@@ -1086,7 +1087,7 @@ async function createAxiosWithProxy() {
                                 // Sempre adiciona update_google = 1 e at = 2
                                 fieldsToUpdate.push(`update_google = 1`);
                                 fieldsToUpdate.push(`at = 2`);
-                                
+
                                 // Adiciona o ID como último parâmetro
                                 valuesToUpdate.push(bd1.id);
 
@@ -1147,6 +1148,6 @@ async function createAxiosWithProxy() {
             }
         }
     }
-    
+
     await startScraping();
 })();
