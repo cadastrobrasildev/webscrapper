@@ -635,8 +635,7 @@ async function createAxiosWithProxy() {
 
                         const bd2 = result2.rows[0];
 
-                        console.log("CNAE MAIn")
-                        console.log(bd2.cnae_main)
+                        await sleep(1500)
 
                         // Monta a consulta para o Google com base nas informações da empresa
                         const empresaQuery = `${bd2.trade_name || bd2.name} ${bd2.address_city_name || ''} ${bd2.address_fu || ''}`;
