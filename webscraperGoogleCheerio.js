@@ -635,7 +635,7 @@ async function createAxiosWithProxy() {
 
                         const bd2 = result2.rows[0];
 
-                        await sleep(1500)
+                        await sleep(3000)
 
                         // Monta a consulta para o Google com base nas informações da empresa
                         const empresaQuery = `${bd2.trade_name || bd2.name} ${bd2.address_city_name || ''} ${bd2.address_fu || ''}`;
