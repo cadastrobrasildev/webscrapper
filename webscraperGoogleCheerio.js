@@ -6,6 +6,7 @@ const cheerio = require('cheerio');
 const randomUseragent = require('random-useragent');
 const { Pool } = require('pg');
 const sleep = ms => new Promise(res => setTimeout(res, ms));
+const ProxyChain = require('proxy-chain');
 require('dotenv').config();
 
 const pool1 = new Pool({
@@ -25,7 +26,7 @@ const pool2 = new Pool({
     port: 5432,
     connectionTimeoutMillis: 180000
 });
-console.log("v1.0.6")
+console.log("v1.0.7")
 /**
  * Função para extrair informações de telefone de um texto
  * @param {string} texto - O texto contendo números de telefone
@@ -345,6 +346,114 @@ function isBlacklistedEmail(email) {
     return false;
 }
 
+/**
+ * Função para obter um proxy aleatório de uma lista de servidores proxy
+ * @returns {Promise<string|null>} - URL do proxy ou null se nenhum proxy válido for encontrado
+ */
+async function getRandomProxy() {
+    // Lista de servidores proxy (substitua com seus próprios proxies ou um serviço de proxy)
+    const proxyList = [
+        'http://username:password@proxy1.example.com:8080',
+        'http://username:password@proxy2.example.com:8080',
+        'http://username:password@proxy3.example.com:8080',
+        // Adicione mais proxies à sua lista
+    ];
+    
+    // Também pode obter proxies de um serviço online
+    try {
+        // Tenta buscar uma lista de proxies gratuitos de um serviço
+        const response = await axios.get('https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all');
+        const proxyData = response.data;
+        
+        if (typeof proxyData === 'string') {
+            // Adiciona proxies obtidos à lista
+            const newProxies = proxyData
+                .split('\n')
+                .filter(proxy => proxy.trim().length > 0)
+                .map(proxy => `http://${proxy.trim()}`);
+                
+            proxyList.push(...newProxies);
+            console.log(`[${new Date().toISOString()}] Added ${newProxies.length} proxies from online service`);
+        }
+    } catch (error) {
+        console.log(`[${new Date().toISOString()}] Failed to fetch proxies from online service: ${error.message}`);
+        // Continua com a lista de proxies existente
+    }
+    
+    // Escolhe um proxy aleatório da lista
+    if (proxyList.length === 0) {
+        console.log(`[${new Date().toISOString()}] No proxies available`);
+        return null;
+    }
+    
+    const randomProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
+    
+    try {
+        // Verifica se o proxy está funcionando
+        console.log(`[${new Date().toISOString()}] Testing proxy: ${randomProxy}`);
+        
+        // Usa o proxy-chain para autenticação
+        const newProxyUrl = await ProxyChain.anonymizeProxy(randomProxy);
+        
+        // Testa o proxy com uma requisição simples
+        const testResponse = await axios.get('https://httpbin.org/ip', {
+            proxy: false,  // Desativa o proxy padrão do axios
+            httpsAgent: new require('https').Agent({ 
+                proxy: newProxyUrl,
+                timeout: 5000,
+                rejectUnauthorized: false
+            }),
+            timeout: 10000,
+        });
+        
+        console.log(`[${new Date().toISOString()}] Proxy test successful: ${JSON.stringify(testResponse.data)}`);
+        return newProxyUrl;
+    } catch (error) {
+        console.log(`[${new Date().toISOString()}] Proxy test failed: ${error.message}`);
+        // Tenta com outro proxy recursivamente, mas com limite para evitar recursão infinita
+        return null;
+    }
+}
+
+/**
+ * Cria uma instância do axios com um proxy aleatório
+ * @returns {Promise<Object>} - Instância do axios configurada com proxy
+ */
+async function createAxiosWithProxy() {
+    const userAgent = randomUseragent.getRandom();
+    const config = {
+        headers: {
+            'User-Agent': userAgent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
+        },
+        timeout: 30000,
+        maxRedirects: 5
+    };
+    
+    // Tenta obter um proxy válido
+    const proxyUrl = await getRandomProxy();
+    
+    if (proxyUrl) {
+        console.log(`[${new Date().toISOString()}] Using proxy: ${proxyUrl}`);
+        // Configura o axios com o proxy
+        config.proxy = false; // Desativa o proxy padrão do axios
+        config.httpsAgent = new require('https').Agent({
+            proxy: proxyUrl,
+            rejectUnauthorized: false // Permite certificados auto-assinados
+        });
+    } else {
+        console.log(`[${new Date().toISOString()}] No working proxy found, proceeding without proxy`);
+    }
+    
+    return axios.create(config);
+}
+
 (async () => {
     let captchaCounter = 0;
     
@@ -532,11 +641,15 @@ function isBlacklistedEmail(email) {
                         console.log(`[${new Date().toISOString()}] Searching Google for: ${query}`);
 
                         try {
-                            // Add a 3-second delay before making the request to Google
+                            // Add a delay before making the request to Google
                             console.log(`[${new Date().toISOString()}] Waiting 3 seconds before Google request...`);
                             await sleep(3000);
                             
-                            // Faz a requisição HTTP para o Google
+                            // Cria uma instância do axios com um proxy aleatório para cada requisição ao Google
+                            // Isso substitui a instância global do axios que você estava usando antes
+                            const axiosInstance = await createAxiosWithProxy();
+                            
+                            // Faz a requisição HTTP para o Google usando o proxy
                             const response = await axiosInstance.get(searchUrl);
                             const html = response.data;
                             
