@@ -6,10 +6,10 @@ require('dotenv').config();
  * @returns {Promise<Array>} Array of company records
  */
 
-console.log("v.1.0.8")
+
 async function getManufacturingCompaniesInSC() {
   console.log(`[${new Date().toISOString()}] Attempting to connect to source database at 93.127.135.79...`);
-  console.log("Transfer v1.0.8")
+  console.log("Transfer v1.0.9")
   // Create a connection pool
   const pool = new Pool({
     host: '93.127.135.79',
