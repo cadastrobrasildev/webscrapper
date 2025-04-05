@@ -101,11 +101,11 @@ const columnMapping = {
     'nomecontatoempresa': null,   
     'motivo': null,
     'ckmotivo': 0,
-    'atualizado': 1,
+    'atualizado': 0,
     
     // Capital e porte
     'capital': 'cr.social_capital',
-    'porte': 'cr.size_code',   
+    'porte': 'cr.size_code',    
     
     'ativa': 'c.situation_desc'
 };
@@ -115,15 +115,25 @@ async function syncCatalogo() {
     const client2 = await pool2.connect();
     
     try {
-        const resTransfer = await client1.query(
-            `SELECT id, cnpj, email 
-             FROM transfer 
-             WHERE at = '2' AND email IS NOT NULL`
+        const resTransfer = await client2.query(
+            `  SELECT 
+                    c.*,
+                    cr.*,
+                    crs.*
+                FROM 
+                    rf_company c
+                    LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
+                    LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root 
+                WHERE
+                c.address_fu = 'SC'
+                AND c.situation_code = '02'
+                AND c.email IS NUL NULL
+                ORDER BY random()
+                LIMIT 100`
         );
 
         for (const row of resTransfer.rows) {
-            const cnpj = row.cnpj;
-            const email = row.email; // Get email from the first database
+            const cnpj = row.cnpj;            
             
             const resRF = await client2.query(`
                 SELECT 
@@ -137,9 +147,10 @@ async function syncCatalogo() {
                 WHERE 
                     c.cnpj = $1`, [cnpj]);
 
-            if (resRF.rows.length === 0) continue;
+            if (resRF.rows.length === 0) continue;            
 
             const rfData = resRF.rows[0];
+            const email = rfData.email;
             
             // Log the structure of the first record to understand the data
             if (row === resTransfer.rows[0]) {
@@ -244,17 +255,8 @@ async function syncCatalogo() {
                     values
                 );
             } else {
-                console.log(`CNPJ ${cnpj}: Atualizando registro existente`);
-                // Record exists, perform UPDATE
-                await client1.query(`
-                    UPDATE catalogo
-                    SET ${updates.join(', ')}
-                    WHERE cnpj = $${valueCount}`,
-                    [...values, cnpj]
-                );
-            }
-
-            console.log(`CNPJ ${cnpj} sincronizado!`);
+               console.log("Já existe no database")
+            }           
         }
     } catch (error) {
         console.error('Erro:', error);

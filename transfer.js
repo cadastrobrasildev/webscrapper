@@ -5,9 +5,11 @@ require('dotenv').config();
  * with corporate email addresses.
  * @returns {Promise<Array>} Array of company records
  */
+
+console.log("v.1.0.8")
 async function getManufacturingCompaniesInSC() {
   console.log(`[${new Date().toISOString()}] Attempting to connect to source database at 93.127.135.79...`);
-  console.log("Transfer v1.0.6")
+  console.log("Transfer v1.0.8")
   // Create a connection pool
   const pool = new Pool({
     host: '93.127.135.79',
@@ -61,8 +63,8 @@ WHERE (
    OR c.cnae_main LIKE '33%')
   AND c.address_fu = '${process.env.TRANSFER_UF}' 
   AND c.situation_code = '02'
-  AND (cr.name ~ '^[0-9]' OR cr.name ~ '[0-9]$')
-  LIMIT 45000  
+  ORDER BY random()
+  LIMIT 80000  
     `);
     
     
