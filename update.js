@@ -19,7 +19,7 @@ const pool2 = new Pool({
     port: 5432,
     connectionTimeoutMillis: 180000
 });
-
+console.log("v1.0.0")
 // Helper function to fetch CNAE data from IBGE API
 async function fetchCnaeData(cnaeCode) {
     try {
@@ -111,163 +111,192 @@ const columnMapping = {
 };
 
 async function syncCatalogo() {
-    const client1 = await pool1.connect();
-    const client2 = await pool2.connect();
+    let processedCount = 0;
+    const batchSize = 1; // Processando um registro por vez
+    let hasMoreRecords = true;
     
-    try {
-        const resTransfer = await client1.query(
-            `SELECT id, cnpj, email 
-             FROM transfer 
-             WHERE at = '2' AND email IS NOT NULL`
-        );
-
-        for (const row of resTransfer.rows) {
-            const cnpj = row.cnpj;
-            const email = row.email; // Get email from the first database
-            
-            const resRF = await client2.query(`
-                SELECT 
-                    c.*,
-                    cr.*,
-                    crs.*
-                FROM 
-                    rf_company c
-                    LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
-                    LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root 
-                WHERE 
-                    c.cnpj = $1`, [cnpj]);
-
-            if (resRF.rows.length === 0) continue;
-
-            const rfData = resRF.rows[0];
-            
-            // Log the structure of the first record to understand the data
-            if (row === resTransfer.rows[0]) {
-                console.log('Sample RF data structure:', JSON.stringify(rfData, null, 2));
-            }
-            
-            // Fetch CNAE data once per record
-            let cnaeData = null;
-            if (rfData.cnae_main) {
-                cnaeData = await fetchCnaeData(rfData.cnae_main);       
-                
-            }
-            
-            // Construir objeto com todas as colunas
-            const catalogoData = {};
-            const updates = [];
-            const values = [];
-            let valueCount = 1;
-
-            for (const [targetColumn, sourceExpression] of Object.entries(columnMapping)) {
-                let value = null;
-                
-                try {
-                    // Special handling for email field
-                    if (targetColumn === 'email') {
-                        value = email; // Use email from transfer table
-                    } 
-                    // Special handling for product fields based on CNAE data
-                    else if (targetColumn === 'produto_1' && cnaeData) {
-                        value = 'Industria';
-                    }
-                    else if (targetColumn === 'produto_2' && cnaeData && cnaeData.grupo) {
-                        value = cnaeData.descricao;
-                    }
-                    else if (targetColumn === 'produto_3' && cnaeData && cnaeData.grupo && cnaeData.grupo.divisao) {
-                        value = cnaeData.grupo.descricao;
-                    }
-                    else if (sourceExpression) {
-                        // Rest of the existing code for other fields
-                        if (typeof sourceExpression === 'string') {
-                            // Handle SQL expressions
-                            if (sourceExpression.startsWith('EXTRACT')) {
-                                if (rfData.foundation_date) {
-                                    value = new Date(rfData.foundation_date).getFullYear();
-                                }
-                            } else {
-                                // Only split if it's a string reference to a property
-                                const parts = sourceExpression.split('.');
-                                
-                                // Get table prefix (c, cr, crs)
-                                const tablePrefix = parts[0];
-                                
-                                // Get the actual property name without prefix
-                                const propertyName = parts[1];
-                                
-                                // Direct access to the property with appropriate casing
-                                value = rfData[propertyName];
-                                
-                                // For debugging the first record
-                                if (row === resTransfer.rows[0] && value === undefined) {
-                                    console.log(`Field not found: ${targetColumn} -> ${sourceExpression}`);
-                                    // Log available keys for this property
-                                    console.log(`Available keys: ${Object.keys(rfData).filter(k => 
-                                        k.toLowerCase() === propertyName.toLowerCase()).join(', ')}`);
-                                }
-                            }
-                        } else if (sourceExpression instanceof Date) {
-                            // Handle Date objects directly
-                            value = sourceExpression;
-                        } else {
-                            // Handle other types (numbers, booleans, etc.)
-                            value = sourceExpression;
-                        }
-                    }
-                } catch (err) {
-                    console.error(`Error extracting ${targetColumn} from ${sourceExpression}:`, err.message);
-                }
-
-                if (row === resTransfer.rows[0]) {
-                    console.log(`${targetColumn} = ${value}`);
-                }
-
-                catalogoData[targetColumn] = value;
-                
-                updates.push(`${targetColumn} = $${valueCount}`);
-                values.push(value);
-                valueCount++;
-            }
-
-            // Check if the record exists
-            const recordExists = await client1.query(
-                'SELECT * FROM catalogo WHERE cnpj = $1 LIMIT 1',
-                [cnpj]
+    while (hasMoreRecords) {
+        const client1 = await pool1.connect();
+        const client2 = await pool2.connect();
+        
+        try {
+            // Pega apenas um registro por vez que ainda não foi processado
+            const resTransfer = await client1.query(
+                `SELECT id, cnpj, email 
+                FROM transfer 
+                WHERE email <> '' AND email IS NOT NULL AND at='2'
+                ORDER BY random()
+                LIMIT $1`,
+                [batchSize]
             );
 
-            if (recordExists.rows.length === 0) {
-                console.log(`CNPJ ${cnpj}: Inserindo novo registro`);
-                // Record doesn't exist, perform INSERT
-                await client1.query(`
-                    INSERT INTO catalogo (${Object.keys(columnMapping).join(', ')})
-                    VALUES (${Object.keys(columnMapping).map((_, i) => `$${i + 1}`).join(', ')})`,
-                    values
-                );
-            } else {
-                console.log(`CNPJ ${cnpj}: Atualizando registro existente`);
-                // Record exists, perform UPDATE
-                await client1.query(`
-                    UPDATE catalogo
-                    SET ${updates.join(', ')}
-                    WHERE cnpj = $${valueCount}`,
-                    [...values, cnpj]
-                );
+            // Se não encontrou registros, encerra o loop
+            if (resTransfer.rows.length === 0) {
+                hasMoreRecords = false;
+                console.log('Não há mais registros para processar.');
+                break;
             }
 
-            console.log(`CNPJ ${cnpj} sincronizado!`);
+            // Processa o registro encontrado
+            for (const row of resTransfer.rows) {
+                const cnpj = row.cnpj;
+                const email = row.email;
+                
+                console.log(`Processando registro ${processedCount + 1}: CNPJ ${cnpj}`);
+                
+                // O resto do código de processamento permanece igual
+                const resRF = await client2.query(`
+                    SELECT 
+                        c.*,
+                        cr.*,
+                        crs.*
+                    FROM 
+                        rf_company c
+                        LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
+                        LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root 
+                    WHERE 
+                        c.cnpj = $1`, [cnpj]);
+
+                if (resRF.rows.length === 0) continue;
+
+                const rfData = resRF.rows[0];
+                
+                // ... resto do código de processamento ...
+                
+                // Fetch CNAE data once per record
+                let cnaeData = null;
+                if (rfData.cnae_main) {
+                    cnaeData = await fetchCnaeData(rfData.cnae_main);
+                }
+                
+                // Construir objeto com todas as colunas
+                const catalogoData = {};
+                const updates = [];
+                const values = [];
+                let valueCount = 1;
+
+                for (const [targetColumn, sourceExpression] of Object.entries(columnMapping)) {
+                    let value = null;
+                
+                    try {
+                        // Special handling for email field
+                        if (targetColumn === 'email') {
+                            value = email; // Use email from transfer table
+                        } 
+                        // Special handling for product fields based on CNAE data
+                        else if (targetColumn === 'produto_1' && cnaeData) {
+                            value = 'Industria';
+                        }
+                        else if (targetColumn === 'produto_2' && cnaeData && cnaeData.grupo) {
+                            value = cnaeData.descricao;
+                        }
+                        else if (targetColumn === 'produto_3' && cnaeData && cnaeData.grupo && cnaeData.grupo.divisao) {
+                            value = cnaeData.grupo.descricao;
+                        }
+                        else if (sourceExpression) {
+                            // Rest of the existing code for other fields
+                            if (typeof sourceExpression === 'string') {
+                                // Handle SQL expressions
+                                if (sourceExpression.startsWith('EXTRACT')) {
+                                    if (rfData.foundation_date) {
+                                        value = new Date(rfData.foundation_date).getFullYear();
+                                    }
+                                } else {
+                                    // Only split if it's a string reference to a property
+                                    const parts = sourceExpression.split('.');
+                                    
+                                    // Get table prefix (c, cr, crs)
+                                    const tablePrefix = parts[0];
+                                    
+                                    // Get the actual property name without prefix
+                                    const propertyName = parts[1];
+                                    
+                                    // Direct access to the property with appropriate casing
+                                    value = rfData[propertyName];
+                                    
+                                    // For debugging the first record
+                                    if (row === resTransfer.rows[0] && value === undefined) {
+                                        console.log(`Field not found: ${targetColumn} -> ${sourceExpression}`);
+                                        // Log available keys for this property
+                                        console.log(`Available keys: ${Object.keys(rfData).filter(k => 
+                                            k.toLowerCase() === propertyName.toLowerCase()).join(', ')}`);
+                                    }
+                                }
+                            } else if (sourceExpression instanceof Date) {
+                                // Handle Date objects directly
+                                value = sourceExpression;
+                            } else {
+                                // Handle other types (numbers, booleans, etc.)
+                                value = sourceExpression;
+                            }
+                        }
+                    } catch (err) {
+                        console.error(`Error extracting ${targetColumn} from ${sourceExpression}:`, err.message);
+                    }
+
+                    if (row === resTransfer.rows[0]) {
+                        console.log(`${targetColumn} = ${value}`);
+                    }
+
+                    catalogoData[targetColumn] = value;
+                    
+                    updates.push(`${targetColumn} = $${valueCount}`);
+                    values.push(value);
+                    valueCount++;
+                }
+
+                // Check if the record exists
+                const recordExists = await client1.query(
+                    'SELECT * FROM catalogo WHERE cnpj = $1 LIMIT 1',
+                    [cnpj]
+                );
+
+                if (recordExists.rows.length === 0) {
+                    console.log(`CNPJ ${cnpj}: Inserindo novo registro`);
+                    await client1.query(`
+                        INSERT INTO catalogo (${Object.keys(columnMapping).join(', ')})
+                        VALUES (${Object.keys(columnMapping).map((_, i) => `$${i + 1}`).join(', ')})`,
+                        values
+                    );
+                } else {
+                    console.log(`CNPJ ${cnpj}: Atualizando registro existente`);
+                    await client1.query(`
+                        UPDATE catalogo
+                        SET ${updates.join(', ')} 
+                        WHERE cnpj = $${valueCount}`,
+                        [...values, cnpj]
+                    );
+                }
+
+                // Update the status for processed record
+                await client1.query(
+                    'UPDATE transfer SET at = $1 WHERE id = $2',
+                    ['4', row.id]
+                );
+                
+                console.log(`CNPJ ${cnpj} sincronizado!`);
+                console.log(`Status do registro ID ${row.id} atualizado para at=4`);
+                
+                processedCount++;
+            }
+            
+            console.log(`Total de registros processados até agora: ${processedCount}`);
+            
+        } catch (error) {
+            console.error('Erro durante o processamento:', error);
+        } finally {
+            client1.release();
+            client2.release();
         }
-    } catch (error) {
-        console.error('Erro:', error);
-    } finally {
-        client1.release();
-        client2.release();
     }
+    
+    console.log(`Processamento concluído. Total de registros processados: ${processedCount}`);
 }
 
 // Executar sincronização
 syncCatalogo()
     .then(() => {
-        console.log('Processo finalizado');
+        console.log('Processo finalizado com sucesso');
         process.exit(0);
     })
     .catch((error) => {
