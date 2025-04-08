@@ -78,7 +78,7 @@ const columnMapping = {
     'materias_primas': null,
     
     // Funcionários e estrutura
-    'nro_funcionarios': 'cr.size_code',
+    'nro_funcionarios':  null,
     'processo_produtivo': null,
     'ano_fundacao': `EXTRACT(YEAR FROM c.foundation_date)`,
     
