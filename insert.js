@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 const axios = require('axios'); // Using axios instead of node-fetch
 require('dotenv').config();
-
+console.log("v.0.0")
 // Configuração dos pools de conexão
 const pool1 = new Pool({
     host: 'shortline.proxy.rlwy.net',
