@@ -125,7 +125,7 @@ async function syncCatalogo() {
                     LEFT JOIN rf_company_root cr ON c.cnpj_root = cr.cnpj_root
                     LEFT JOIN rf_company_root_simples crs ON c.cnpj_root = crs.cnpj_root 
                 WHERE
-                c.address_fu = 'SC'
+                c.address_fu = '${process.env.INSERTUF}'
                 AND c.situation_code = '02'
                 AND c.email IS NUL NULL
                 AND cr.name !~ '^[0-9]' AND cr.name !~ '[0-9]$'
