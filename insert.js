@@ -101,7 +101,7 @@ const columnMapping = {
     'nomecontatoempresa': null,   
     'motivo': null,
     'ckmotivo': 0,
-    'atualizado': 0,
+    'atualizado': 5,
     
     // Capital e porte
     'capital': 'cr.social_capital',
@@ -116,7 +116,7 @@ async function syncCatalogo() {
     
     try {
         const resTransfer = await client2.query(
-            `  SELECT 
+            `SELECT 
                     c.*,
                     cr.*,
                     crs.*
@@ -128,8 +128,8 @@ async function syncCatalogo() {
                 c.address_fu = 'SC'
                 AND c.situation_code = '02'
                 AND c.email IS NUL NULL
-                ORDER BY random()
-                LIMIT 100`
+                AND cr.name !~ '^[0-9]' AND cr.name !~ '[0-9]$'
+                ORDER BY random()`
         );
 
         for (const row of resTransfer.rows) {
