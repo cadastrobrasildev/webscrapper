@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const mysql = require('mysql2/promise');
 const axios = require('axios');
 require('dotenv').config();
-console.log("v1.0.0");
+console.log("v1.0.1");
 
 // Configuração dos pools de conexão
 const pool1 = new Pool({
@@ -40,6 +40,11 @@ async function testConnections() {
 async function transferCatalogo() {
     try {
         await testConnections();
+
+        // Exclui todos os dados da tabela catalogo em pool2 antes de transferir
+        console.log('Limpando tabela catalogo em pool2...');
+        await pool2.query('DELETE FROM catalogo');
+        console.log('Tabela catalogo limpa em pool2.');
 
         // 1. Busca todos os registros do pool1
         console.log('Buscando registros do pool1...');
