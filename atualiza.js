@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const mysql = require('mysql2/promise');
 const axios = require('axios');
 require('dotenv').config();
-console.log("v1.0.1");
+console.log("v1.0.2");
 
 // Configuração dos pools de conexão
 const pool1 = new Pool({
@@ -58,6 +58,10 @@ async function transferCatalogo() {
         let countTentados = 0;
         let countInseridos = 0;
         for (const row of rows) {
+            // Remove o campo telefone_completo se existir
+            delete row.telefone_completo;
+            delete row.ativa;
+            delete row.porte
             const keys = Object.keys(row);
             const values = Object.values(row);
 
